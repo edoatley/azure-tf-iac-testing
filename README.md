@@ -1,14 +1,19 @@
 # Testing Terraform Infrastructure as Code
 
+- [Testing Terraform Infrastructure as Code](#testing-terraform-infrastructure-as-code)
+  - [Introduction](#introduction)
+  - [Tooling](#tooling)
+  - [Setup up a basic `terragrunt` project](#setup-up-a-basic-terragrunt-project)
+
 ## Introduction
 
 Infrastructure as Code (IaC) is the process of defining your infrastructure resources in source code that can be versioned 
 and managed like any other software. This allows you to automate the provisioning of your infrastructure in a repeatable and 
-consistent manner and allows changes to be tracked and audited. In the Azure world this can be achieved using:
-
-- [Terraform](https://www.terraform.io/)
-- [Azure Resource Manager (ARM) Templates](https://docs.microsoft.com/en-us/azure/azure-resource-manager/templates/overview)
-- [Azure CLI](https://docs.microsoft.com/en-us/cli/azure/?view=azure-cli-latest)
+consistent manner and allows changes to be tracked and audited. In the Azure world this can be achieved using:- [Testing Terraform Infrastructure as Code](#testing-terraform-infrastructure-as-code)
+- [Testing Terraform Infrastructure as Code](#testing-terraform-infrastructure-as-code)
+  - [Introduction](#introduction)
+  - [Tooling](#tooling)
+  - [Setup up a basic `terragrunt` project](#setup-up-a-basic-terragrunt-project)
 
 Realistically Azure CLI is going to be hard to define in an idempotent way and ARM templates are not as flexible as Terraform
 which is widely used and declarative. Therefore this document will focus on Terraform.
@@ -53,13 +58,13 @@ az storage container create --name terraform-state --account-name edoterraformst
 
 5. Get a basic terragrunt configuration in place:
 
-in the root `terragrunt.hcl` file:
+in the root `terragrunt.hcl` in `terraform/environments/dev` file:
 
 ```hcl
 remote_state {
   backend = "azurerm"
   generate = {
-    path      = "backend.tf"
+    path      = "grunt_backend.tf"
     if_exists = "overwrite_terragrunt"
   }
   config = {
@@ -73,13 +78,7 @@ remote_state {
 }
 ```
 
-and then in each child `terragrunt.hcl` file reference the parent:
-
-```hcl
-include "root" {
-  path = find_in_parent_folders()
-}
-```
+Note: I am using a prefix of `grunt_` for the terragrunt generated files so I can easily 'gitignore' them with the pattern: `grunt_*.tf`
 
 6. Initialise the configuration to check it is working:
 
@@ -108,11 +107,11 @@ commands will detect it and remind you to do so if necessary.
 Note, for this to work you need to either update the subscription and tenant ids in the root `terragrunt.hcl` file or set the
 `ARM_SUBSCRIPTION_ID` and `ARM_TENANT_ID` environment variables.
 
-7. Add the provider configuration to the root `terragrunt.hcl` file:
+7. Add the provider configuration to a new parent root `terragrunt.hcl` under `terraform/environments`:
 
 ```hcl
 generate "provider" {
-  path      = "provider.tf"
+  path      = "grunt_provider.tf"
   if_exists = "overwrite_terragrunt"
   contents  = <<EOF
 provider "azurerm" {
@@ -133,9 +132,17 @@ EOF
 }
 ```
 
+and then in each child `terragrunt.hcl` file in `terraform/environments/<environment name>` reference the parent by adding:
+
+```hcl
+include "root" {
+  path = find_in_parent_folders()
+}
+
 we can then check this applies correctly:
 
 ```bash
+❯ cd terraform/environments/dev
 ❯ terragrunt init -upgrade
 ...
 Initializing provider plugins...
@@ -151,3 +158,82 @@ Initializing provider plugins...
 ```
 
 In the elided output you can see the provider downloads and installs.
+
+8. Create a basic resource group module:
+
+```hcl
+terraform {
+  required_providers {
+    azurerm = {
+      source  = "hashicorp/azurerm"
+      version = ">= 2.0"
+    }
+  }
+}
+
+provider "azurerm" {
+  features {}
+}
+
+module "naming" {
+  source = "Azure/naming/azurerm"
+  suffix = concat(var.suffix, [var.app_name])
+}
+
+resource "azurerm_resource_group" "network" {
+  name     = module.naming.resource_group.name
+  location = var.location
+  tags = merge(var.tags, tomap({ "deploy-timestamp" = timestamp() }))
+
+  lifecycle {
+    ignore_changes = [
+      tags["deploy-timestamp"]
+    ]
+  }
+}
+```
+
+9. Utilise the module in the `dev` environment by updating the file `terraform/environments/dev/resource_group/terragrunt.hcl`:
+
+```hcl
+terraform {
+  source = "${get_repo_root()}/terraform/modules/resource_group"
+}
+
+inputs = {
+  location = "northeurope"
+  tags     = { "environment" = "dev" }
+  suffix   = "edo"
+  app_name = "app"
+}
+```
+
+we can then run plan to see what will be created:
+
+```bash
+❯ cd terraform/environments/dev
+❯ terragrunt run-all apply
+```
+
+Note I am using the `run-all` command to ensure all the modules are applied.
+
+
+10. now that is working 
+
+
+```hcl
+terraform {
+  source = "${get_repo_root()}/terraform/modules/resource_group"
+}
+
+locals {
+  common_vars = yamldecode(file(find_in_parent_folders("dev-common.yaml")))
+}
+
+inputs = {
+  location = local.common_vars.location
+  tags     = local.common_vars.tags
+  suffix   = local.common_vars.suffix
+  app_name = local.common_vars.app_name
+}
+```
