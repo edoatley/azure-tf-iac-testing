@@ -12,7 +12,7 @@ remote_state {
   config = {
     resource_group_name  = "rg-edo-terraform-state"
     storage_account_name = "edoterraformstate"
-    container_name       = "terraform-state"
+    container_name       = "dev"
     key                  = "${path_relative_to_include()}/terraform.tfstate"
     tenant_id            = get_env("ARM_TENANT_ID", "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx")
     subscription_id      = get_env("ARM_SUBSCRIPTION_ID", "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx")

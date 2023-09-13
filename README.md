@@ -53,10 +53,11 @@ touch terraform/modules/{resource_group,vnet,vm,app_gateway}/{main.tf,outputs.tf
 ```bash
 az group create --name rg-edo-terraform-state --location northeurope
 az storage account create --name edoterraformstate --resource-group rg-edo-terraform-state --location northeurope --sku Standard_LRS
-az storage container create --name terraform-state --account-name edoterraformstate
+az storage container create --name dev --account-name edoterraformstate
+az storage container create --name prod --account-name edoterraformstate
 ```
 
-5. Get a basic terragrunt configuration in place:
+1. Get a basic terragrunt configuration in place:
 
 in the root `terragrunt.hcl` in `terraform/environments/dev` file:
 
@@ -70,7 +71,7 @@ remote_state {
   config = {
     resource_group_name  = "rg-edo-terraform-state"
     storage_account_name = "edoterraformstate"
-    container_name       = "terraform-state"
+    container_name       = "dev"
     key                  = "${path_relative_to_include()}/terraform.tfstate"
     tenant_id            = get_env("ARM_TENANT_ID", "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx")
     subscription_id      = get_env("ARM_SUBSCRIPTION_ID", "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx")
@@ -202,24 +203,111 @@ terraform {
 
 inputs = {
   location = "northeurope"
-  tags     = { "environment" = "dev" }
-  suffix   = "edo"
-  app_name = "app"
+  tags     = { "environment" = "dev", project = "edoterraform" }
+  suffix   = ["edo", "dev"]
+  app_name = "testapp"
 }
 ```
 
-we can then run plan to see what will be created:
+we can then run apply to create:
 
+<display>
+<summary>Terragrunt dev apply output<summary>
 ```bash
 ❯ cd terraform/environments/dev
 ❯ terragrunt run-all apply
+INFO[0000] The stack at /home/edoatley/source/edoatley/azure-tf-iac-testing/terraform/environments/dev will be processed in the following order for command apply:
+Group 1
+- Module /home/edoatley/source/edoatley/azure-tf-iac-testing/terraform/environments/dev/resource_group
+ 
+Are you sure you want to run 'terragrunt apply' in each folder of the stack described above? (y/n) y
+
+Terraform used the selected providers to generate the following execution
+plan. Resource actions are indicated with the following symbols:
+  + create
+
+Terraform will perform the following actions:
+
+  # azurerm_resource_group.network will be created
+  + resource "azurerm_resource_group" "network" {
+      + id       = (known after apply)
+      + location = "northeurope"
+      + name     = "rg-edo-dev-testapp"
+      + tags     = (known after apply)
+    }
+
+  # module.naming.random_string.first_letter will be created
+  + resource "random_string" "first_letter" {
+      + id          = (known after apply)
+      + length      = 1
+      + lower       = true
+      + min_lower   = 0
+      + min_numeric = 0
+      + min_special = 0
+      + min_upper   = 0
+      + number      = false
+      + numeric     = false
+      + result      = (known after apply)
+      + special     = false
+      + upper       = false
+    }
+
+  # module.naming.random_string.main will be created
+  + resource "random_string" "main" {
+      + id          = (known after apply)
+      + length      = 60
+      + lower       = true
+      + min_lower   = 0
+      + min_numeric = 0
+      + min_special = 0
+      + min_upper   = 0
+      + number      = true
+      + numeric     = true
+      + result      = (known after apply)
+      + special     = false
+      + upper       = false
+    }
+
+Plan: 3 to add, 0 to change, 0 to destroy.
+
+Changes to Outputs:
+  + resource_group_name = "rg-edo-dev-testapp"
+module.naming.random_string.first_letter: Creating...
+module.naming.random_string.main: Creating...
+module.naming.random_string.first_letter: Creation complete after 0s [id=g]
+module.naming.random_string.main: Creation complete after 0s [id=rgsm3x4mbq03v77hb6qt9dme4yuobggu5104auz0es9yhctbup6gwrdv03ob]
+azurerm_resource_group.network: Creating...
+azurerm_resource_group.network: Creation complete after 1s [id=/subscriptions/4a0c9b39-20e2-47b5-a648-a58ccc0c05e5/resourceGroups/rg-edo-dev-testapp]
+
+Apply complete! Resources: 3 added, 0 changed, 0 destroyed.
+
+Outputs:
+
+resource_group_name = "rg-edo-dev-testapp"
+```
+</display>
+
+Note: I am using the `run-all` command to ensure all the modules are applied.
+
+
+1.  now that is working we can refactor to pull out the common variables into a yaml file so we do not need to repeat them in the other modules.
+To do so we first create a `dev-common.yaml` file in the `terraform/environments/dev` folder:
+
+```yaml
+location: northeurope
+
+tags:
+  environment: dev
+  project: edoterraform
+
+suffix:
+  - edo
+  - dev
+
+app_name: testapp
 ```
 
-Note I am using the `run-all` command to ensure all the modules are applied.
-
-
-10. now that is working 
-
+we can then update the `terragrunt.hcl` file in the `terraform/environments/dev/resource_group` folder to use the common variables:
 
 ```hcl
 terraform {
@@ -237,3 +325,131 @@ inputs = {
   app_name = local.common_vars.app_name
 }
 ```
+
+Note: the locals block is scoped to the module and so unfortunately I don't believe there is a way to define this at the `dev` environment level.
+
+11. Check production works as well by creating a `prod-common.yaml` file in the `terraform/environments/prod` folder:
+
+```yaml
+location: northeurope
+
+tags:
+  environment: prod
+  project: edoterraform
+
+suffix:
+  - edo
+  - prod
+
+app_name: testapp
+```
+
+Next, update the `terragrunt.hcl` file in `terraform/environments/prod` to define a backend:
+
+```hcl
+include "root" {
+  path = find_in_parent_folders()
+}
+
+remote_state {
+  backend = "azurerm"
+  generate = {
+    path      = "grunt_backend.tf"
+    if_exists = "overwrite_terragrunt"
+  }
+  config = {
+    resource_group_name  = "rg-edo-terraform-state"
+    storage_account_name = "edoterraformstate"
+    container_name       = "prod"
+    key                  = "${path_relative_to_include()}/terraform.tfstate"
+    tenant_id            = get_env("ARM_TENANT_ID", "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx")
+    subscription_id      = get_env("ARM_SUBSCRIPTION_ID", "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx")
+  }
+}
+```
+
+Finally amend the `terragrunt.hcl` file in `terraform/environments/prod/resource_group` folder to match the `dev` version
+and we can test it out.
+
+<display>
+<summary>Terragrunt apply prod output<summary>
+```bash
+❯ cd terraform/environments/prod
+❯ terragrunt run-all apply
+INFO[0000] The stack at /home/edoatley/source/edoatley/azure-tf-iac-testing/terraform/environments/prod will be processed in the following order for command apply:
+Group 1
+- Module /home/edoatley/source/edoatley/azure-tf-iac-testing/terraform/environments/prod/resource_group
+ 
+Are you sure you want to run 'terragrunt apply' in each folder of the stack described above? (y/n) y
+
+Terraform used the selected providers to generate the following execution
+plan. Resource actions are indicated with the following symbols:
+  + create
+
+Terraform will perform the following actions:
+
+  # azurerm_resource_group.network will be created
+  + resource "azurerm_resource_group" "network" {
+      + id       = (known after apply)
+      + location = "northeurope"
+      + name     = "rg-edo-prod-testapp"
+      + tags     = (known after apply)
+    }
+
+  # module.naming.random_string.first_letter will be created
+  + resource "random_string" "first_letter" {
+      + id          = (known after apply)
+      + length      = 1
+      + lower       = true
+      + min_lower   = 0
+      + min_numeric = 0
+      + min_special = 0
+      + min_upper   = 0
+      + number      = false
+      + numeric     = false
+      + result      = (known after apply)
+      + special     = false
+      + upper       = false
+    }
+
+  # module.naming.random_string.main will be created
+  + resource "random_string" "main" {
+      + id          = (known after apply)
+      + length      = 60
+      + lower       = true
+      + min_lower   = 0
+      + min_numeric = 0
+      + min_special = 0
+      + min_upper   = 0
+      + number      = true
+      + numeric     = true
+      + result      = (known after apply)
+      + special     = false
+      + upper       = false
+    }
+
+Plan: 3 to add, 0 to change, 0 to destroy.
+
+Changes to Outputs:
+  + resource_group_name = "rg-edo-prod-testapp"
+module.naming.random_string.main: Creating...
+module.naming.random_string.first_letter: Creating...
+module.naming.random_string.first_letter: Creation complete after 0s [id=u]
+module.naming.random_string.main: Creation complete after 0s [id=fgu13x066v1lw44589j8fi529wcjrkdtxgxu5dlyhkt9l2djttiq55f4oss5]
+azurerm_resource_group.network: Creating...
+azurerm_resource_group.network: Creation complete after 1s [id=/subscriptions/4a0c9b39-20e2-47b5-a648-a58ccc0c05e5/resourceGroups/rg-edo-prod-testapp]
+
+Apply complete! Resources: 3 added, 0 changed, 0 destroyed.
+
+Outputs:
+
+resource_group_name = "rg-edo-prod-testapp"
+```
+<display>
+
+... CONTINUE HERE ...
+
+12. Next we will add the vnet module. 
+
+13. Create a `terragrunt.hcl` file in `terraform/environments/dev/vnet` and `terraform/environments/prod/vnet` to invoke:
+

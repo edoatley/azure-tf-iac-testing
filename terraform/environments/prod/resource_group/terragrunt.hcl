@@ -12,3 +12,4 @@ inputs = {
   suffix   = local.common_vars.suffix
   app_name = local.common_vars.app_name
 }
+
