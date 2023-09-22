@@ -18,6 +18,11 @@
     - [Step 12. Add vnet module](#step-12-add-vnet-module)
     - [Step 13. Update production configuration](#step-13-update-production-configuration)
   - [Testing the project with terratest](#testing-the-project-with-terratest)
+    - [Step 1. Install go](#step-1-install-go)
+    - [Step 2. Create a basic test](#step-2-create-a-basic-test)
+    - [Step 3. Execute the test](#step-3-execute-the-test)
+    - [Step 4. Add a test for the vnet module](#step-4-add-a-test-for-the-vnet-module)
+    - [Step 5 Making a more useful clean test](#step-5-making-a-more-useful-clean-test)
 
 ## Introduction
 
@@ -657,3 +662,186 @@ which is identical to the `dev` version other than the common variables file ref
 
 Now we have a basic project set up we can look at testing it. We will use terratest to do this. Terratest is a Go library that makes it easier to write automated tests for your infrastructure code. It provides a number of helper functions to make it easier to test the terraform code.
 
+### Step 1. Install go
+
+Follow the [Install Go](https://golang.org/doc/install) instructions.
+
+### Step 2. Create a basic test
+
+First we create a new directory `test` and add a file `terraform_test.go` with the following contents:
+
+```go
+package test
+
+import (
+  "testing"
+  "github.com/gruntwork-io/terratest/modules/terraform"
+  "github.com/stretchr/testify/assert"
+)
+
+// constant to define terraform directory we want to test
+var terraformParentDir string = "../terraform/environments/dev"
+
+// An example of how to test the our simple Terraform resource_group module
+func TestTerraformBasicExample(t *testing.T) {
+  t.Parallel()
+
+  // Construct the terraform options setting the path to the Terraform code we want to test and and specifying the terragrunt binary.
+  terraformOptions := terraform.WithDefaultRetryableErrors(t, &terraform.Options{
+    TerraformDir: terraformParentDir,
+    TerraformBinary: "terragrunt",
+  })
+  
+  // At the end of the test, run `terragrunt run-all destroy` to clean up any resources that were created.
+  defer terraform.TgDestroyAll(t, terraformOptions)
+
+  // Run `terragrunt run-all apply`. Fail the test if there are any errors.
+  terraform.TgApplyAll(t, terraformOptions)
+
+  // Call our helper to get the resource group name created by the Terraform code.
+  rgName := getOutput(t, terraformOptions, "/resource_group", "resource_group_name")
+
+  // Verify that our Resource Group has the right name
+  assert.Equal(t, "rg-edo-dev-testapp", rgName)
+}
+
+// helper function to simplify fetching the outputs when using terragrunt run-all
+func getOutput(t *testing.T, terraformOptions *terraform.Options, dir string, output string) string {
+  terraformOptions.TerraformDir = terraformParentDir + dir
+  outputValue := terraform.Output(t, terraformOptions, output)
+  terraformOptions.TerraformDir = terraformParentDir
+  return outputValue
+}
+```
+
+The code is commented to explain in detail what is happening. The key points are:
+- run `terragrunt run-all apply` to apply the terraform code
+- extract the output of the resource group module
+- verify the output is as expected
+
+### Step 3. Execute the test
+
+To actually run our go code we need to initialize the module first
+
+```bash
+cd test
+go mod init github.com/edoatley/azure-tf-iac-testing/test
+go mod tidy
+```
+
+and then we can run the test:
+
+```bash
+go test -v -run TestTerraformBasicExample -timeout 10m
+```
+
+So picking out the key parts of the output, we see the test:
+
+
+1. Running the `terragrunt run-all apply` command:
+
+```bash
+```bash
+TestTerraformBasicExample 2023-09-22T13:01:06+01:00 retry.go:91: terragrunt [run-all apply -input=false -auto-approve -lock=false --terragrunt-non-interactive]
+TestTerraformBasicExample 2023-09-22T13:01:06+01:00 logger.go:66: Running command terragrunt with args [run-all apply -input=false -auto-approve -lock=false --terragrunt-non-interactive]
+TestTerraformBasicExample 2023-09-22T13:01:07+01:00 logger.go:66: time=2023-09-22T13:01:07+01:00 level=info msg=The stack at /home/edoatley/source/edoatley/azure-tf-iac-testing/terraform/environments/dev will be processed in the following order for command apply:
+TestTerraformBasicExample 2023-09-22T13:01:07+01:00 logger.go:66: Group 1
+TestTerraformBasicExample 2023-09-22T13:01:07+01:00 logger.go:66: - Module /home/edoatley/source/edoatley/azure-tf-iac-testing/terraform/environments/dev
+TestTerraformBasicExample 2023-09-22T13:01:07+01:00 logger.go:66: - Module /home/edoatley/source/edoatley/azure-tf-iac-testing/terraform/environments/dev/resource_group
+TestTerraformBasicExample 2023-09-22T13:01:07+01:00 logger.go:66: 
+TestTerraformBasicExample 2023-09-22T13:01:07+01:00 logger.go:66: Group 2
+TestTerraformBasicExample 2023-09-22T13:01:07+01:00 logger.go:66: - Module /home/edoatley/source/edoatley/azure-tf-iac-testing/terraform/environments/dev/vnet
+```
+
+2. Applying ok and outputing the expected resource_group_name
+
+```bash
+TestTerraformBasicExample 2023-09-22T13:01:35+01:00 logger.go:66: Apply complete! Resources: 3 added, 0 changed, 0 destroyed.
+TestTerraformBasicExample 2023-09-22T13:01:35+01:00 logger.go:66: 
+TestTerraformBasicExample 2023-09-22T13:01:35+01:00 logger.go:66: Outputs:
+TestTerraformBasicExample 2023-09-22T13:01:35+01:00 logger.go:66: 
+TestTerraformBasicExample 2023-09-22T13:01:35+01:00 logger.go:66: resource_group_name = "rg-edo-dev-testapp"
+```
+
+3. Getting the output of the resource group module
+
+```bash
+TestTerraformBasicExample 2023-09-22T13:02:14+01:00 retry.go:91: terragrunt [output -no-color -json resource_group_name --terragrunt-non-interactive]
+TestTerraformBasicExample 2023-09-22T13:02:14+01:00 logger.go:66: Running command terragrunt with args [output -no-color -json resource_group_name --terragrunt-non-interactive]
+TestTerraformBasicExample 2023-09-22T13:02:14+01:00 logger.go:66: "rg-edo-dev-testapp"
+```
+
+4. Successfully destroying the resources
+
+```bash
+TestTerraformBasicExample 2023-09-22T13:02:14+01:00 retry.go:91: terragrunt [run-all destroy -auto-approve -input=false -lock=false --terragrunt-non-interactive]
+TestTerraformBasicExample 2023-09-22T13:02:14+01:00 logger.go:66: Running command terragrunt with args [run-all destroy -auto-approve -input=false -lock=false --terragrunt-non-interactive]
+...
+TestTerraformBasicExample 2023-09-22T13:04:05+01:00 logger.go:66: azurerm_resource_group.network: Destroying... [id=/subscriptions/4a0c9b39-20e2-47b5-a648-a58ccc0c05e5/resourceGroups/rg-edo-dev-testapp]
+TestTerraformBasicExample 2023-09-22T13:04:15+01:00 logger.go:66: azurerm_resource_group.network: Still destroying... [id=/subscriptions/4a0c9b39-20e2-47b5-a648-...05e5/resourceGroups/rg-edo-dev-testapp, 10s elapsed]
+TestTerraformBasicExample 2023-09-22T13:04:21+01:00 logger.go:66: azurerm_resource_group.network: Destruction complete after 16s
+TestTerraformBasicExample 2023-09-22T13:04:21+01:00 logger.go:66: module.naming.random_string.first_letter: Destroying... [id=l]
+TestTerraformBasicExample 2023-09-22T13:04:21+01:00 logger.go:66: module.naming.random_string.main: Destroying... [id=6hlumrzrmcy3lndmiz2t03kisjq6pe1nhfe00tjk0xiwi8pvurokmoz4d62p]
+TestTerraformBasicExample 2023-09-22T13:04:21+01:00 logger.go:66: module.naming.random_string.main: Destruction complete after 0s
+TestTerraformBasicExample 2023-09-22T13:04:21+01:00 logger.go:66: module.naming.random_string.first_letter: Destruction complete after 0s
+TestTerraformBasicExample 2023-09-22T13:04:21+01:00 logger.go:66: 
+TestTerraformBasicExample 2023-09-22T13:04:21+01:00 logger.go:66: Destroy complete! Resources: 3 destroyed.
+TestTerraformBasicExample 2023-09-22T13:04:21+01:00 logger.go:66: 
+```
+
+5. Confirming that the test has passed:
+
+```bash
+TestTerraformBasicExample 2023-09-22T13:04:21+01:00 logger.go:66: Destroy complete! Resources: 3 destroyed.
+TestTerraformBasicExample 2023-09-22T13:04:21+01:00 logger.go:66: 
+--- PASS: TestTerraformBasicExample (194.80s)
+PASS
+ok      github.com/edoatley/azure-tf-iac-testing        194.814s
+```
+
+### Step 4. Add a test for the vnet module
+
+We now have a working test but it is not fast! It takes around 3 minutes to run. This is because we are applying the whole stack. 
+
+Let's try creating a test that just runs the resource_group_module. To do this we will add another test to our `terraform_test.go` file:
+
+```go
+func TestTerraformResourceGroup(t *testing.T) {
+  t.Parallel()
+
+  terraformOptions := terraform.WithDefaultRetryableErrors(t, &terraform.Options{
+    TerraformDir: terraformParentDir + "/resource_group",
+    TerraformBinary: "terragrunt",
+  })
+  
+
+  defer terraform.Destroy(t, terraformOptions)
+
+  terraform.InitAndApply(t, terraformOptions)
+  rgName := terraform.Output(t, terraformOptions, "resource_group_name")
+  assert.Equal(t, "rg-edo-dev-testapp", rgName)
+}
+```
+
+This is a lot faster and could be beneficial in some cases:
+
+```bash
+--- PASS: TestTerraformResourceGroup (83.21s)
+PASS
+ok      github.com/edoatley/azure-tf-iac-testing        83.220s
+```
+
+but if what you want to test deploying all the modules then you are likely better off using the `run-all` command.
+
+### Step 5 Making a more useful clean test
+
+The long running nature of an apply-all test does make for an interesting challenge where you either:
+
+- run a long running test many times 
+- have a single long running test that needs to check many things rather than the ideal of making a single assertion per test
+
+To refactor around this a little I created the following test this:
+
+```go
+
+```
