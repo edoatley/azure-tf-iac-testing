@@ -80,12 +80,12 @@ func validateVirtualNetwork(t *testing.T, terraformOptions *terraform.Options) {
   vnetName := getOutput(t, terraformOptions, "/virtual_network", "vnet_name")
   assert.Equal(t, "vnet-edo-dev-testapp", vnetName)
 
-  vnetAddressSpaces := getOutput(t, terraformOptions, "/virtual_network", "vnet_address_spaces")
-  assert.Equal(t, "10.0.0.0/16", vnetAddressSpaces)
+  vnetAddressSpaces := getOutput(t, terraformOptions, "/virtual_network", "vnet_address_space")
+  assert.Equal(t, "10.0.0.0/16", vnetAddressSpaces[0])
 
   subnetAddressSpaces := getOutputMap(t, terraformOptions, "/virtual_network", "subnet_address_spaces")
-  assert.Equal(t, "10.0.1.0/24", subnetAddressSpaces["subnet1"])
-  assert.Equal(t, "10.0.2.0/24", subnetAddressSpaces["subnet2"])
+  assert.Equal(t, "10.0.1.0/24", subnetAddressSpaces["subnet1"][0])
+  assert.Equal(t, "10.0.2.0/24", subnetAddressSpaces["subnet2"][0])
 }
 
 // helper function to fetch a map output

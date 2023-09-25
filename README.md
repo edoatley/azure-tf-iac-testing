@@ -22,7 +22,8 @@
     - [Step 2. Create a basic test](#step-2-create-a-basic-test)
     - [Step 3. Execute the test](#step-3-execute-the-test)
     - [Step 4. Add a test for the vnet module](#step-4-add-a-test-for-the-vnet-module)
-    - [Step 5 Making a more useful clean test](#step-5-making-a-more-useful-clean-test)
+    - [Step 5. Making a more useful clean test](#step-5-making-a-more-useful-clean-test)
+    - [Step 6. Aren't we building and destroying the actual dev environment!](#step-6-arent-we-building-and-destroying-the-actual-dev-environment)
 
 ## Introduction
 
@@ -833,7 +834,7 @@ ok      github.com/edoatley/azure-tf-iac-testing        83.220s
 
 but if what you want to test deploying all the modules then you are likely better off using the `run-all` command.
 
-### Step 5 Making a more useful clean test
+### Step 5. Making a more useful clean test
 
 The long running nature of an apply-all test does make for an interesting challenge where you either:
 
@@ -843,5 +844,56 @@ The long running nature of an apply-all test does make for an interesting challe
 To refactor around this a little I created the following test this:
 
 ```go
+func TestTerraformRunAll(t *testing.T) {
+  t.Parallel()
 
+  terraformOptions := terraform.WithDefaultRetryableErrors(t, &terraform.Options{
+    TerraformDir: terraformParentDir,
+    TerraformBinary: "terragrunt",
+  })
+  
+  // At the end of the test, run `terragrunt run-all destroy` to clean up any resources that were created.
+  defer terraform.TgDestroyAll(t, terraformOptions)
+
+  // Run `terragrunt run-all apply`. Fail the test if there are any errors.
+  terraform.TgApplyAll(t, terraformOptions)
+
+  validateResourceGroup(t, terraformOptions)
+
+  validateVirtualNetwork(t, terraformOptions)
+}
+
+// helper function to validate the resource group
+func validateResourceGroup(t *testing.T, terraformOptions *terraform.Options) {
+  rgName := getOutput(t, terraformOptions, "/resource_group", "resource_group_name")
+  assert.Equal(t, "rg-edo-dev-testapp", rgName)
+}
+
+// helper function to validate the vnet name and CIDR ranges
+func validateVirtualNetwork(t *testing.T, terraformOptions *terraform.Options) {
+  vnetName := getOutput(t, terraformOptions, "/virtual_network", "vnet_name")
+  assert.Equal(t, "vnet-edo-dev-testapp", vnetName)
+
+  vnetAddressSpaces := getOutput(t, terraformOptions, "/virtual_network", "vnet_address_space")
+  assert.Equal(t, "10.0.0.0/16", vnetAddressSpaces[0])
+
+  subnetAddressSpaces := getOutputMap(t, terraformOptions, "/virtual_network", "subnet_address_spaces")
+  assert.Equal(t, "10.0.1.0/24", subnetAddressSpaces["subnet1"][0])
+  assert.Equal(t, "10.0.2.0/24", subnetAddressSpaces["subnet2"][0])
+}
 ```
+
+Though we are breaking the 'one assertion rule' I would argue that:
+
+a) the outcome we are measuring is whether the terraform we will use to deploy our infrastructure works correctly
+b) running lots of identical tests with many assertions is going to take a lot of time and slow down feedback
+
+### Step 6. Aren't we building and destroying the actual dev environment!
+
+Override key details to create a infra environment using the dev details
+
+override terraform Options
+
+https://dev.to/mnsanfilippo/testing-iac-with-terratest-and-github-actions-okh
+
+CONTINUE HERE
