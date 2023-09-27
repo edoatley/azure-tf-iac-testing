@@ -890,6 +890,44 @@ b) running lots of identical tests with many assertions is going to take a lot o
 
 ### Step 6. Aren't we building and destroying the actual dev environment!
 
+In the test above you may notice we are using the real dev environment. This is not ideal as we are actually deploying
+and destroying the real infrastructure so we are not testing the code in isolation.
+
+The challenge here is to allow the variables in the *-common.yaml to be overridden. This seems to be a difficult task and so
+I think moving to `tfvars` files instead is a better option. Fortunately that will be easier now we have tests!
+
+So the first step is to create a tfvars file for the dev environment:
+
+```hcl
+location = "northeurope"
+
+tags = {
+  "environment" = "dev"
+  "project"     = "edoterraform"
+}
+suffix = ["edo", "dev"]
+
+app_name = "testapp"
+
+address_space = ["10.0.0.0/16"]
+
+subnets = [
+  {
+    name             = "subnet1"
+    address_prefixes = ["10.0.1.0/24"]
+  },
+  {
+    name             = "subnet2"
+    address_prefixes = ["10.0.2.0/24"]
+  }
+]
+```
+
+and then update the `terragrunt.hcl` file in `terraform/environments/dev` to use the tfvars file:
+
+```hcl
+
+
 Override key details to create a infra environment using the dev details
 
 override terraform Options

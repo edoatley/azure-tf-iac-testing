@@ -18,3 +18,6 @@ remote_state {
     subscription_id      = get_env("ARM_SUBSCRIPTION_ID", "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx")
   }
 }
+
+# Stop terragrunt trying to run the root module which is just there to be inherited
+skip = true
