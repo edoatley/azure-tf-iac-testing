@@ -1,7 +1,6 @@
 package test
 
 import (
-	"encoding/json"
 	"testing"
 
 	"github.com/gruntwork-io/terratest/modules/terraform"
@@ -28,7 +27,7 @@ func TestTerraformRunAll(t *testing.T) {
 		TerraformDir:    terraformParentDir,
 		TerraformBinary: terraformBinary,
 		Vars: map[string]interface{}{
-			"suffix": []string{"edo", "dev"},
+			"suffix": []string{"terratest", "edo"},
 		},
 	})
 
@@ -51,50 +50,42 @@ func TestTerraformRunAll(t *testing.T) {
 
 // helper function to validate the resource group
 func validateResourceGroup(t *testing.T, terraformOptions *terraform.Options) {
-	rgName := getOutput(t, terraformOptions, resourceGroupModule, "resource_group_name")
+	rgName := getSimpleOutput(t, terraformOptions, resourceGroupModule, "resource_group_name")
 	assert.Equal(t, resourceGroupName, rgName)
 }
 
 // helper function to validate the vnet name and CIDR ranges
 func validateVirtualNetwork(t *testing.T, terraformOptions *terraform.Options) {
-  vnetName := getOutput(t, terraformOptions, "/virtual_network", "vnet_name")
+  vnetName := getSimpleOutput(t, terraformOptions, "/virtual_network", "vnet_name")
   assert.Equal(t, "vnet-edo-dev-testapp", vnetName)
 
-  vnetAddressSpaces := getOutputList(t, terraformOptions, "/virtual_network", "vnet_address_space")
+  var vnetAddressSpaces []string
+  getOutput(t, terraformOptions, "/virtual_network", "vnet_address_space", &vnetAddressSpaces)
   assert.Equal(t, "10.0.0.0/16", vnetAddressSpaces[0])
 
-  subnetAddressSpaces := getOutputMap(t, terraformOptions, "/virtual_network", "subnet_address_spaces")
+  var subnetAddressSpaces map[string][]string
+  getOutput(t, terraformOptions, "/virtual_network", "subnet_address_spaces", &subnetAddressSpaces)
+
   assert.Equal(t, "10.0.1.0/24", subnetAddressSpaces["subnet1"][0])
   assert.Equal(t, "10.0.2.0/24", subnetAddressSpaces["subnet2"][0])
 }
 
-// helper function to fetch a list output
-func getOutputList(t *testing.T, terraformOptions *terraform.Options, dir string, output string) []string {
-  outputValue := getOutput(t, terraformOptions, dir, output)
-  var outputList []string
-  err := json.Unmarshal([]byte(outputValue), &outputList)
-  if err != nil {
-    t.Fatalf("Failed to unmarshal output list: %v", err)
-  }
-  return outputList
-}
-
-// helper function to fetch a map output
-func getOutputMap(t *testing.T, terraformOptions *terraform.Options, dir string, output string) map[string]string {
-	outputValue := getOutput(t, terraformOptions, dir, output)
-	var outputMap map[string]string
-	err := json.Unmarshal([]byte(outputValue), &outputMap)
-	if err != nil {
-		t.Fatalf("Failed to unmarshal output map: %v", err)
-	}
-	return outputMap
-}
-
-// helper function to simplify fetching the outputs when using terragrunt run-all
-func getOutput(t *testing.T, terraformOptions *terraform.Options, dir string, output string) string {
-  t.Helper()
+// helper function to fetch simple outputs when using terragrunt run-all
+func getSimpleOutput(t *testing.T, terraformOptions *terraform.Options, dir string, outputRequested string) string {
 	terraformOptions.TerraformDir = terraformParentDir + dir
-	outputValue := terraform.Output(t, terraformOptions, output)
+	outputValue, err := terraform.OutputE(t, terraformOptions, outputRequested)
+  if err != nil {
+    t.Fatalf("Failed to fetch output %s: %v", outputRequested, err)
+  }
 	terraformOptions.TerraformDir = terraformParentDir
 	return outputValue
+}
+
+// helper function to fetch more complicated outputs when using terragrunt run-all
+func getOutput(t *testing.T, terraformOptions *terraform.Options, dir string, outputRequested string, output interface{}) {
+  terraformOptions.TerraformDir = terraformParentDir + dir
+	err := terraform.OutputStructE(t, terraformOptions, outputRequested, output)
+  if err != nil {
+    t.Fatalf("Failed to fetch output %s: %v", output, err)
+  }
 }

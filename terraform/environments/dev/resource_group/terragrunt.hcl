@@ -9,6 +9,6 @@ locals {
 inputs = {
   location = local.common_vars.location
   tags     = local.common_vars.tags
-  suffix   = []
+  suffix   = local.common_vars.suffix
   app_name = local.common_vars.app_name 
 } 

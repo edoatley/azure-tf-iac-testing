@@ -4,9 +4,9 @@ tags:
   environment: dev
   project: edoterraform
 
-# suffix:
-#   - edo
-#   - dev
+suffix:
+  - edo
+  - dev
 
 app_name: testapp
 

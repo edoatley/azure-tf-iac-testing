@@ -23,6 +23,7 @@
     - [Step 3. Execute the test](#step-3-execute-the-test)
     - [Step 4. Add a test for the vnet module](#step-4-add-a-test-for-the-vnet-module)
     - [Step 5. Making a more useful clean test](#step-5-making-a-more-useful-clean-test)
+    - [Step 6. (ASIDE) refactor getOutputMap](#step-6-aside-refactor-getoutputmap)
     - [Step 6. Aren't we building and destroying the actual dev environment!](#step-6-arent-we-building-and-destroying-the-actual-dev-environment)
 
 ## Introduction
@@ -888,6 +889,29 @@ Though we are breaking the 'one assertion rule' I would argue that:
 a) the outcome we are measuring is whether the terraform we will use to deploy our infrastructure works correctly
 b) running lots of identical tests with many assertions is going to take a lot of time and slow down feedback
 
+### Step 6. (ASIDE) refactor getOutputMap
+
+Now it was all working I took the opportunity to improve and refactor a bit. I observed that there is a nice method in terratest 
+called `terraform.OutputStructE` which I could use to simplify the `validateVirtualNetwork` method:
+
+```go
+func getOutput(t *testing.T, terraformOptions *terraform.Options, dir string, outputRequested string, output interface{}) {
+  terraformOptions.TerraformDir = terraformParentDir + dir
+	err := terraform.OutputStructE(t, terraformOptions, outputRequested, output)
+  if err != nil {
+    t.Fatalf("Failed to fetch output %s: %v", output, err)
+  }
+}
+```
+
+in this you pass in a pointer to the object you wish it to populate which for the subnet ranges means I can call it as follows:
+
+```go
+  var subnetAddressSpaces map[string][]string
+  getOutput(t, terraformOptions, "/virtual_network", "subnet_address_spaces", &subnetAddressSpaces)
+  fmt.Println("XXX -> subnetAddressSpaces: " + fmt.Sprintf("%v", subnetAddressSpaces))
+```
+
 ### Step 6. Aren't we building and destroying the actual dev environment!
 
 In the test above you may notice we are using the real dev environment. This is not ideal as we are actually deploying
@@ -896,42 +920,54 @@ and destroying the real infrastructure so we are not testing the code in isolati
 The challenge here is to allow the variables in the *-common.yaml to be overridden. This seems to be a difficult task and so
 I think moving to `tfvars` files instead is a better option. Fortunately that will be easier now we have tests!
 
-So the first step is to create a tfvars file for the dev environment:
+So the first step is to override the suffix variable as this is used to handle the naming:
 
-```hcl
-location = "northeurope"
-
-tags = {
-  "environment" = "dev"
-  "project"     = "edoterraform"
-}
-suffix = ["edo", "dev"]
-
-app_name = "testapp"
-
-address_space = ["10.0.0.0/16"]
-
-subnets = [
-  {
-    name             = "subnet1"
-    address_prefixes = ["10.0.1.0/24"]
-  },
-  {
-    name             = "subnet2"
-    address_prefixes = ["10.0.2.0/24"]
-  }
-]
+```go
+	terraformOptions := terraform.WithDefaultRetryableErrors(t, &terraform.Options{
+		TerraformDir:    terraformParentDir,
+		TerraformBinary: terraformBinary,
+		Vars: map[string]interface{}{
+			"suffix": []string{"terratest", "edo"},
+		},
+	})
 ```
 
-and then update the `terragrunt.hcl` file in `terraform/environments/dev` to use the tfvars file:
+I then see my test failing with the following errors:
 
-```hcl
+```bash
+--- FAIL: TestTerraformRunAll (137.78s)
+    --- FAIL: TestTerraformRunAll/Resource_Group (0.64s)
+        terraform_test.go:55: 
+                Error Trace:    /home/edoatley/source/edoatley/azure-tf-iac-testing/test/terraform_test.go:55
+                                                        /home/edoatley/source/edoatley/azure-tf-iac-testing/test/terraform_test.go:43
+                Error:          Not equal: 
+                                expected: "rg-edo-dev-testapp"
+                                actual  : "rg-terratest-edo-testapp"
+                            
+                                Diff:
+                                --- Expected
+                                +++ Actual
+                                @@ -1 +1 @@
+                                -rg-edo-dev-testapp
+                                +rg-terratest-edo-testapp
+                Test:           TestTerraformRunAll/Resource_Group
+    --- FAIL: TestTerraformRunAll/Virtual_Network (3.47s)
+        terraform_test.go:61: 
+                Error Trace:    /home/edoatley/source/edoatley/azure-tf-iac-testing/test/terraform_test.go:61
+                                                        /home/edoatley/source/edoatley/azure-tf-iac-testing/test/terraform_test.go:48
+                Error:          Not equal: 
+                                expected: "vnet-edo-dev-testapp"
+                                actual  : "vnet-terratest-edo-testapp"
+                            
+                                Diff:
+                                --- Expected
+                                +++ Actual
+                                @@ -1 +1 @@
+                                -vnet-edo-dev-testapp
+                                +vnet-terratest-edo-testapp
+                Test:           TestTerraformRunAll/Virtual_Network
+```
 
+This is actually exactly what we want we just need to correct our assertions to expect the new names:
 
-Override key details to create a infra environment using the dev details
-
-override terraform Options
-
-https://dev.to/mnsanfilippo/testing-iac-with-terratest-and-github-actions-okh
-
-CONTINUE HERE
+```go
