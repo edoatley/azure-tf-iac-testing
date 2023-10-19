@@ -13,8 +13,6 @@ const (
   terraformParentDir     = "../terraform/environments/dev"
   resourceGroupModule    = "/resource_group"
   virtualNetworkModule   = "/virtual_network"
-  resourceGroupName      = "rg-edo-dev-testapp"
-  virtualNetworkName     = "vnet-edo-dev-testapp"
   virtualNetworkAddress  = "10.0.0.0/16"
   subnet1Address         = "10.0.1.0/24"
   subnet2Address         = "10.0.2.0/24"
@@ -22,6 +20,8 @@ const (
 
 func TestTerraformRunAll(t *testing.T) {
 	t.Parallel()
+
+  
 
 	terraformOptions := terraform.WithDefaultRetryableErrors(t, &terraform.Options{
 		TerraformDir:    terraformParentDir,
@@ -51,13 +51,13 @@ func TestTerraformRunAll(t *testing.T) {
 // helper function to validate the resource group
 func validateResourceGroup(t *testing.T, terraformOptions *terraform.Options) {
 	rgName := getSimpleOutput(t, terraformOptions, resourceGroupModule, "resource_group_name")
-	assert.Equal(t, resourceGroupName, rgName)
+	assert.Equal(t, "rg-terratest-edo-testapp", rgName)
 }
 
 // helper function to validate the vnet name and CIDR ranges
 func validateVirtualNetwork(t *testing.T, terraformOptions *terraform.Options) {
   vnetName := getSimpleOutput(t, terraformOptions, "/virtual_network", "vnet_name")
-  assert.Equal(t, "vnet-edo-dev-testapp", vnetName)
+  assert.Equal(t, "vnet-terratest-edo-testapp", vnetName)
 
   var vnetAddressSpaces []string
   getOutput(t, terraformOptions, "/virtual_network", "vnet_address_space", &vnetAddressSpaces)
