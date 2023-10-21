@@ -34,6 +34,9 @@
     - [Step 4. Try the test out to check it fails as expected](#step-4-try-the-test-out-to-check-it-fails-as-expected)
     - [Step 5. Fix the test](#step-5-fix-the-test)
     - [Creating more configurable tests](#creating-more-configurable-tests)
+      - [Step 1 - create a configuration properties class and wire it in](#step-1---create-a-configuration-properties-class-and-wire-it-in)
+      - [Step 2 - add the properties to the application.yaml](#step-2---add-the-properties-to-the-applicationyaml)
+      - [Step 3 - use the properties in the test](#step-3---use-the-properties-in-the-test)
     - [Creating more realistic / useful tests](#creating-more-realistic--useful-tests)
 
 ## Introduction
@@ -1101,17 +1104,6 @@ mkdir -p src/test/resources
 Next we create our configuration class in java as personally I found it simpler:
 
 ```java
-package uk.edoatley.azure.it;
-
-import com.azure.core.management.AzureEnvironment;
-import com.azure.core.management.profile.AzureProfile;
-import com.azure.identity.DefaultAzureCredential;
-import com.azure.identity.DefaultAzureCredentialBuilder;
-import com.azure.resourcemanager.AzureResourceManager;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
-
 @Configuration
 public class AzureResourceManagerConfiguration {
 
@@ -1140,11 +1132,6 @@ The AzureResourceManager SDK is documented [here](https://learn.microsoft.com/en
 Next we can create our groovy test for which we will use spock:
 
 ```groovy
-import com.azure.resourcemanager.AzureResourceManager
-import org.springframework.beans.factory.annotation.Autowired
-import org.springframework.boot.test.context.SpringBootTest
-import spock.lang.Specification
-
 @SpringBootTest
 class AzureIntegrationTest extends Specification {
 
@@ -1272,8 +1259,142 @@ BUILD SUCCESSFUL in 10s
 
 The test above is great and gives us confidence our infrastructure really deployed and was correctly configured. However, it is not very useful
 across many environments as it is hard coded to the dev environment. The terragrunt definitions allows us to deploy to many environments and so
-it would be good if our tests did the same
+it would be good if our tests did the same.
+
+To do this we can utilise spring properties as follows:
+
+#### Step 1 - create a configuration properties class and wire it in
+
+```java
+package uk.edoatley.azure.it;
+
+import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.stereotype.Component;
+
+import lombok.Data;
+
+@Data
+@Component
+@ConfigurationProperties(prefix = "azure.config")
+public class AzureConfigurationProperties {
+    private String resourceGroupName;
+}
+
+```
+
+The key things to note here are:
+
+- use [lombok](https://auth0.com/blog/a-complete-guide-to-lombok/) to add boilerplate (getters, setters, constructors etc)
+- use `@ConfigurationProperties` annotation to instruct Spring to map properties to the class variables
+
+#### Step 2 - add the properties to the application.yaml
+
+Now we can add a property to a file called `application-dev.yaml` in `src/test/resources`:
+
+```yaml
+azure:
+  config:
+    resource-group-name: rg-edo-dev-testapp
+```
+
+The `dev` part of the file name means the properties will be used and override those in `application.yaml` when we run the test with the `dev` spring profile.
+
+#### Step 3 - use the properties in the test
+
+We can now update our test to use the properties:
+
+```groovy
+@SpringBootTest(classes = AzureResourceManagerConfiguration.class)
+@EnableConfigurationProperties(AzureConfigurationProperties.class)
+class AzureIntegrationTest extends Specification {
+
+    @Autowired
+    private AzureResourceManager azureResourceManager
+
+    @Autowired
+    private AzureConfigurationProperties config
+
+    def "Resource group exists"() {
+        when:
+        def groups = azureResourceManager.resourceGroups()
+
+        then:
+        groups.list().size() > 0
+        groups.list().any { it.name() == config.resourceGroupName }
+
+    }
+}
+```
+
+The key things here are to Autowire in the properties class and use the @EnableConfigurationProperties annotation to tell Spring to populate it.
+
+We can now run the test with the dev profile and see it pass:
+
+```bash
+❯ SPRING_PROFILES_ACTIVE=dev ./gradlew clean build
+...
+AzureIntegrationTest
+
+  Test Resource group exists PASSED (2.3s)
+
+SUCCESS: Executed 1 tests in 6.6s
+```
+
+Extending our tests and running them accross many environments will now be greatly simplified.
 
 ### Creating more realistic / useful tests
 
-Now that we have a basic test working we can start to add more tests to validate the infrastructure we have deployed. We can al
+Now that we have a basic test working we can start to add more tests to validate the infrastructure we have deployed.
+
+Let's start by replicating the ones we created with Terratest:
+
+```groovy
+def "VNET has correct name and IP ranges"() {
+
+  when:
+  def vnet = azureResourceManager.networks().getByResourceGroup(config.resourceGroupName, config.vnetName)
+
+  then:
+  vnet.name() == config.vnetName
+  vnet.addressSpaces().size() == 1
+  vnet.addressSpaces().any { it == config.vnetAddressSpace}
+}   
+
+def "Subnets have the correct names and IP ranges"() {
+  when:
+  def vnet = azureResourceManager.networks().getByResourceGroup(config.resourceGroupName, config.vnetName)
+  def subnets = vnet.subnets()
+
+  then:
+  subnets.size() == 2
+
+  subnets.each { name, subnet ->
+      subnet.addressPrefix() == config.subnets[name]
+  }
+}
+```
+
+This is a slightly contrived example, but for now let's assume we need to ensure a certain IP address is available within the VNET. 
+We can do this relatively easily as follows:
+
+```groovy
+def "Check important IP address is free"() {
+    
+  when:
+  def vnet = azureResourceManager.networks().getByResourceGroup(config.resourceGroupName, config.vnetName)
+
+  then:
+  vnet.isPrivateIPAddressAvailable(config.importantIpAddress)
+}
+```
+
+More realistic uses for these kind of tests could include:
+
+- validate the last deployment date
+- validate tags are applied
+- validate defender for cloud is enabled
+- ensure certain network rules are turned on or off
+- etc
+
+As teams start to use environments and have admin/editor access these tests can also be a great guardrail in combination with Azure Policy to ensure
+that the infrastructure is configured correctly and remains so.
