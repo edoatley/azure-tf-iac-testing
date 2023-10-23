@@ -3,7 +3,7 @@ terraform {
 }
 
 locals {
-  common_vars = merge(yamldecode(file(find_in_parent_folders("dev-common.yaml"))))
+  common_vars = yamldecode(file(find_in_parent_folders("dev-common.yaml")))
 }
 
 dependency "rg" {

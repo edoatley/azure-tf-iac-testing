@@ -3,7 +3,7 @@ terraform {
 }
 
 locals {
-  common_vars = yamldecode(file(find_in_parent_folders("prod-common.yaml")))
+ common_vars = yamldecode(file(find_in_parent_folders("prod-common.yaml")))
 }
 
 inputs = {

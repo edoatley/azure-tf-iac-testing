@@ -8,6 +8,11 @@ variable "tags" {
   description = "Tags for the resources"
 }
 
+variable "suffix" {
+  type = list
+  description = "Suffix value for the naming"
+}
+
 variable "resource_group_name" {
   type = string
   description = "Name of resource group"

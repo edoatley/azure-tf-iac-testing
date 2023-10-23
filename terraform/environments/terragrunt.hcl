@@ -9,12 +9,5 @@ provider "azurerm" {
     }
   }
 }
-provider "azuread" {
-  # Configuration options
-}
-
-provider "local" {
-  # Configuration options
-}
 EOF
 }

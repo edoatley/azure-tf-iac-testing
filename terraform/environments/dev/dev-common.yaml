@@ -20,3 +20,9 @@ subnets:
   - name: subnet2
     address_prefixes: 
       - 10.0.2.0/24
+
+vm:
+  size: Standard_B1s
+  name: testappvm
+  admin_name: testadmin
+  admin_password: Testpassword!321

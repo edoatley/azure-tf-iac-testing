@@ -1,47 +1,61 @@
 # Building and testing Terraform Infrastructure as Code
 
+- [Building and testing Terraform Infrastructure as Code](#building-and-testing-terraform-infrastructure-as-code)
+  - [Introduction](#introduction)
+  - [Part 1 - Terragrunt](#part-1---terragrunt)
+    - [Step 1 - Initialise the project and install tools](#step-1---initialise-the-project-and-install-tools)
+    - [Step 2 - Setup the backend for state management](#step-2---setup-the-backend-for-state-management)
+    - [Step 3 - Provider configuration](#step-3---provider-configuration)
+    - [Step 4 - Create some terraform modules](#step-4---create-some-terraform-modules)
+    - [Step 5 - deploy our first resource with Terragrunt](#step-5---deploy-our-first-resource-with-terragrunt)
+    - [Step 6 - Make Terragrunt configuration driven](#step-6---make-terragrunt-configuration-driven)
+    - [Step 7 - Production configuration](#step-7---production-configuration)
+    - [Step 8 - Add a dependent module](#step-8---add-a-dependent-module)
+  - [Conclusions](#conclusions)
+
+
 ## Introduction
 
-Infrastructure as Code (IaC) is the process of defining your infrastructure resources in source code that can be versioned 
-and managed like any other software. This allows you to automate the provisioning of your infrastructure in a repeatable and 
-consistent manner and allows changes to be tracked and audited. When adopting the cloud like Azure and AWS this becomes even more
-important as the number of resources you are managing can grow exponentially and the ability to manage them manually becomes
-impossible.
+Infrastructure as Code (IaC) is the process of defining your infrastructure resources in source code that can be versioned
+and managed like any other software. This allows you to automate the provisioning of your infrastructure in a repeatable and
+consistent manner and allows changes to be tracked and audited. When adopting cloud providers, like Azure and AWS, this becomes
+even more important as the number of resources you are managing can grow exponentially and the ability to manage them manually
+becomes impossible.
 
-In the Azure world the primary way to manage resource is Azure Resource Manager (ARM) templates but these are not human readable 
-(at least to us mortals!) nor as flexible as Terraform which is widely used and declarative. Therefore this document will focus on 
-Terraform where I have most experience but explore some new tooling that will hopefully help improve my workflows. There are two key 
-challenges I am interested in addressing:
+In the 'Azure world' the primary management plane control is Azure Resource Manager (ARM). We can create ARM templates and 
+deploy these in Azure but I would argue these are not particularly human readable. Terraform benefits from being widely used, 
+multi-cloud and declarative so I will focus on this toolset here. I will explore some new tooling that will hopefully help 
+improve my terraform workflows. There are two key challenges I am interested in addressing:
 
 - How to structure the Terraform code to make it easier to manage multiple configurations
-- How to test terraform code so that we are confident it works and are very happy to destroy our infrastructure safe in the knowledge we can recreate it
+- How to test terraform code so that we are confident it works and are very happy to destroy our infrastructure safe in the 
+  knowledge we can recreate it
 
-I am going to tackle these questions in 3 parts:
+I am going to tackle these questions in 3 separate parts:
 
 - **Part 1** - setting up and utilising terragrunt to manage the terraform code and configuration
 - **Part 2** - using terratest to test the terraform code
 - **Part 3** - using spock to test the deployed
 
-In a nutshell the key challenge I am looking at here is how to configure test Terraform code to ensure it is working as expected across
-all the environments it executes. This is not a trivial task as a handful of terraform resources will lead to the execution of dozens of 
-API requests to ARM to both check the current state. I hope you enjoy my exploration of this topic and find it useful.
+In a nutshell the key challenge I am looking at here is how to configure test Terraform code to ensure it is working as 
+expected across all the environments it executes. This is not a trivial task as a handful of terraform resources will lead 
+to the execution of dozens of API requests to ARM to both check the current state. I hope you enjoy my exploration of this 
+topic and find it useful.
 
 ## Part 1 - Terragrunt
 
-First we will set up a terragrunt project to manage/wrap the terraform code as it provides a number of useful features
-we will use later. The project will be a simple web application deployed to a VM behind an application gateway.
+In this first article I will focus on getting a terragrunt project set up and running and give it a test drive to see how it can help
+us manage our terraform code. The project will be a simple application deployed to a VM inside a virtual network.
 
-### Step 1. Install Terraform
+### Step 1 - Initialise the project and install tools
 
-Follow the [Install Terraform](https://learn.hashicorp.com/terraform/getting-started/install) instructions.
+Before we can get started we need to install the tooling and do some basic project initialisation. We can install the tools we need
+by following the following instructions:
 
-### Step 2. Install Terragrunt
+- [Install Terraform](https://learn.hashicorp.com/terraform/getting-started/install)
+- [Install Terragrunt](https://terragrunt.gruntwork.io/docs/getting-started/install/)
 
-Follow the [Install Terragrunt](https://terragrunt.gruntwork.io/docs/getting-started/install/) instructions.
-
-### Step 3. Create the project structure
-
-Execute the following commands:
+We can then initialise the project with some basic commands:
 
 ```bash
 mkdir -p terraform/environments/{dev,prod}
@@ -50,9 +64,13 @@ mkdir -p terraform/modules/{resource_group,vnet,vm,app_gateway}
 touch terraform/modules/{resource_group,vnet,vm,app_gateway}/{main.tf,outputs.tf,variables.tf}
 ```
 
-### Step 4. Setup the backend
+### Step 2 - Setup the backend for state management
 
-Create a storage account and container to store the terraform state data:
+Terraform relies on having a persisted [state file](https://developer.hashicorp.com/terraform/language/state) that allows it to understand
+what should exist and identify any changes it needs to make to bring your infrastructure into the desired state. This state file can be
+stored locally but this is not recommended and we will store it in an Azure storage account.
+
+To quickly create the storage account and containers we can use the Azure CLI:
 
 ```bash
 az group create --name rg-edo-terraform-state --location northeurope
@@ -61,9 +79,8 @@ az storage container create --name dev --account-name edoterraformstate
 az storage container create --name prod --account-name edoterraformstate
 ```
 
-### Step 5. Terragrunt backend configuration
-
-in the root `terragrunt.hcl` in `terraform/environments/dev` file:
+With these created we can then define a Terragrunt backend configuration in the root `terragrunt.hcl` in `terraform/environments/dev` 
+directory:
 
 ```hcl
 remote_state {
@@ -83,40 +100,38 @@ remote_state {
 }
 ```
 
-Note: I am using a prefix of `grunt_` for the terragrunt generated files so I can easily 'gitignore' them with the pattern: `grunt_*.tf`
+If you are familiar with a backend configuration in terraform then a lot of this is familiar but there are a few differences. 
 
-### Step 6. Terragrunt initialize
+Firstly, we have the `generate` block which instructs Terragrunt to generate a file based on the configuration with the 
+`if_exists = "overwrite_terragrunt"` meaning to overwrite previous terragrunt backend configurations but error if another 
+`backend.tf` exists. For the path I am using a prefix of `grunt_` for the terragrunt generated files so I can easily use 'gitignore' 
+with the pattern: `grunt_*.tf`
 
-Initialise the configuration to check it is working:
+Secondly, here we are using `get_env()` to retrieve the Azure tenant and subscription ids from the environment which simplifies 
+deployments when you are targetting multiple subscriptions in dev, prod etc. We also use the `path_relative_to_include()` function
+to ensure the state file is stored in a folder structure that matches the terragrunt configuration.
+
+With our backend all configured we can initialise the configuration to check it is working:
 
 ```bash
+❯ export ARM_SUBSCRIPTION_ID=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+❯ export ARM_TENANT_ID=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 ❯ cd terraform/environments/dev
 ❯ terragrunt init
-
+...
 Initializing the backend...
 
 Successfully configured the backend "azurerm"! Terraform will automatically
 use this backend unless the backend configuration changes.
-
-Initializing provider plugins...
-
-Terraform has been successfully initialized!
-
-You may now begin working with Terraform. Try running "terraform plan" to see
-any changes that are required for your infrastructure. All Terraform commands
-should now work.
-
-If you ever set or change modules or backend configuration for Terraform,
-rerun this command to reinitialize your working directory. If you forget, other
-commands will detect it and remind you to do so if necessary.
 ```
 
-Note, for this to work you need to either update the subscription and tenant ids in the root `terragrunt.hcl` file or set the
-`ARM_SUBSCRIPTION_ID` and `ARM_TENANT_ID` environment variables.
+### Step 3 - Provider configuration
 
-### Step 7. Provider configuration
+Providers in terraform are the plugins that interact with the cloud provider APIs to actually apply the configuration and 
+create your infrastructure resources. Now we have our backend working, the next step is to add provider configuration to 
+a `terragrunt.hcl` file under `terraform/environments`. We can place it in this folder as it will be common to all environments.
 
-Add the provider configuration to a new parent root `terragrunt.hcl` under `terraform/environments`:
+The configuration looks like this:
 
 ```hcl
 generate "provider" {
@@ -130,83 +145,56 @@ provider "azurerm" {
     }
   }
 }
-provider "azuread" {
-  # Configuration options
-}
-
-provider "local" {
-  # Configuration options
-}
 EOF
 }
 ```
 
-and then in each child `terragrunt.hcl` file in `terraform/environments/<environment name>` reference the parent by adding:
+You will recognise the `generate` configuration from the backend configuration. Here we are generating a file called `grunt_provider.tf`.
+The bulk of the configuration is a [heredoc](https://en.wikipedia.org/wiki/Here_document) that defines the actual providers we wish to use.
+In our case we only need the Azure provider but you can add as many as you need.
+
+With this defined we now need to reference it in the `terragrunt.hcl` file in each environment e.g. `terraform/environments/dev`. To do 
+this we can use the `include` block:
 
 ```hcl
 include "root" {
   path = find_in_parent_folders()
 }
+```
 
-we can then check this applies correctly:
+This completes the provider configuration so we can initialise again to check it is working:
 
 ```bash
 ❯ cd terraform/environments/dev
 ❯ terragrunt init -upgrade
-...
+
+Initializing the backend...
+
 Initializing provider plugins...
-- Finding latest version of hashicorp/azuread...
-- Finding latest version of hashicorp/local...
 - Finding latest version of hashicorp/azurerm...
-- Installing hashicorp/azurerm v3.72.0...
-- Installed hashicorp/azurerm v3.72.0 (signed by HashiCorp)
-- Installing hashicorp/azuread v2.41.0...
-- Installed hashicorp/azuread v2.41.0 (signed by HashiCorp)
-- Installing hashicorp/local v2.4.0...
-- Installed hashicorp/local v2.4.0 (signed by HashiCorp)
+- Using previously-installed hashicorp/azurerm v3.77.0
+
+Terraform has been successfully initialized!
 ```
 
-In the elided output you can see the provider downloads and installs.
+In the elided output you can see the provider downloads and installs have succeeded.
 
-### Step 8. Create a module
+### Step 4 - Create some terraform modules
 
-Create a basic resource group module:
+With the Terragrunt plumbing in place we can now define some terraform modules to use. I need 3 modules:
 
-```hcl
-terraform {
-  required_providers {
-    azurerm = {
-      source  = "hashicorp/azurerm"
-      version = ">= 2.0"
-    }
-  }
-}
+- Resource Group - `terraform/modules/resource_group`
+- Virtual Network - `terraform/modules/vnet`
+- Virtual Machine - `terraform/modules/vm`
 
-provider "azurerm" {
-  features {}
-}
+I will share the source code for these modules so will skip over that for now and focus on how to use them with
+Terragrunt.
 
-module "naming" {
-  source = "Azure/naming/azurerm"
-  suffix = concat(var.suffix, [var.app_name])
-}
+### Step 5 - deploy our first resource with Terragrunt
 
-resource "azurerm_resource_group" "network" {
-  name     = module.naming.resource_group.name
-  location = var.location
-  tags = merge(var.tags, tomap({ "deploy-timestamp" = timestamp() }))
-
-  lifecycle {
-    ignore_changes = [
-      tags["deploy-timestamp"]
-    ]
-  }
-}
-```
-
-### Step 9. Apply the module in `dev`
-
-Utilise the module in the `dev` environment by updating the file `terraform/environments/dev/resource_group/terragrunt.hcl`:
+With our terraform modules in place we can now set about using them with Terragrunt. We will start with the resource group
+which is nice and straightforward. We create a `terragrunt.hcl` file in the `terraform/environments/dev/resource_group` folder
+as follows:
 
 ```hcl
 terraform {
@@ -221,66 +209,13 @@ inputs = {
 }
 ```
 
-we can then run apply to create:
-
-<details>
-<summary>Terragrunt dev apply output<summary>
+We can now try this out and see if it works. I use the terragrunt `run-all` command to run the same command in all the modules
+which will be helpful once we start to add more shortly.
 
 ```bash
 ❯ cd terraform/environments/dev
 ❯ terragrunt run-all apply
-INFO[0000] The stack at /home/edoatley/source/edoatley/azure-tf-iac-testing/terraform/environments/dev will be processed in the following order for command apply:
-Group 1
-- Module /home/edoatley/source/edoatley/azure-tf-iac-testing/terraform/environments/dev/resource_group
- 
-Are you sure you want to run 'terragrunt apply' in each folder of the stack described above? (y/n) y
-
-Terraform used the selected providers to generate the following execution
-plan. Resource actions are indicated with the following symbols:
-  + create
-
-Terraform will perform the following actions:
-
-  # azurerm_resource_group.network will be created
-  + resource "azurerm_resource_group" "network" {
-      + id       = (known after apply)
-      + location = "northeurope"
-      + name     = "rg-edo-dev-testapp"
-      + tags     = (known after apply)
-    }
-
-  # module.naming.random_string.first_letter will be created
-  + resource "random_string" "first_letter" {
-      + id          = (known after apply)
-      + length      = 1
-      + lower       = true
-      + min_lower   = 0
-      + min_numeric = 0
-      + min_special = 0
-      + min_upper   = 0
-      + number      = false
-      + numeric     = false
-      + result      = (known after apply)
-      + special     = false
-      + upper       = false
-    }
-
-  # module.naming.random_string.main will be created
-  + resource "random_string" "main" {
-      + id          = (known after apply)
-      + length      = 60
-      + lower       = true
-      + min_lower   = 0
-      + min_numeric = 0
-      + min_special = 0
-      + min_upper   = 0
-      + number      = true
-      + numeric     = true
-      + result      = (known after apply)
-      + special     = false
-      + upper       = false
-    }
-
+...
 Plan: 3 to add, 0 to change, 0 to destroy.
 
 Changes to Outputs:
@@ -299,14 +234,17 @@ Outputs:
 resource_group_name = "rg-edo-dev-testapp"
 ```
 
-</details>
+Success! We have deployed our resource group with Terragrunt.
 
-Note: I am using the `run-all` command to ensure all the modules are applied.
+### Step 6 - Make Terragrunt configuration driven
 
-### Step 10. Externalise common configuration
+Although we have been able to deploy everything successfully we have not really made use of the power of Terragrunt yet. Critically none of the code
+we have can easily handle configuration changes. For example, if we wanted to change the location of the resource group we would need to update
+the file  `terraform/environments/dev/resource_group/terragrunt.hcl`. This is not ideal as we would need to update the same configuration in all
+the environments and modules. This will get increasingly complicated, time-consuming and error-prone as the project grows.
 
-Now that `dev` is working we can refactor to pull out the common variables into a yaml file so we do not need to repeat them in the other modules.
-To do so we first create a `dev-common.yaml` file in the `terraform/environments/dev` folder:
+Let's fix this by first externalising the common variables into a yaml file. We can create a `dev-common.yaml` file in the `terraform/environments/dev`
+and populate it with the values that may change between environments, deployments or be shared between modules:
 
 ```yaml
 location: northeurope
@@ -322,7 +260,8 @@ suffix:
 app_name: testapp
 ```
 
-we can then update the `terragrunt.hcl` file in the `terraform/environments/dev/resource_group` folder to use the common variables:
+To use this configuration we can update the `terragrunt.hcl` file in the `terraform/environments/dev/resource_group` folder to read the yaml file
+and save them as local variables:
 
 ```hcl
 terraform {
@@ -341,11 +280,17 @@ inputs = {
 }
 ```
 
+We can now benefit from two options to better manage the configuration going forward:
+
+1. we can update the configuration in one place and it will be used by all the modules
+2. we can override configurations with terraform variables (either passed in on the command line or set in the environment)
+
 Note: the locals block is scoped to the module and so unfortunately I don't believe there is a way to define this at the `dev` environment level.
 
-### Step 11. Production configuration  
+### Step 7 - Production configuration  
 
-Now dev is working we can check production works as well by creating a `prod-common.yaml` file in the `terraform/environments/prod` folder:
+With our configurable dev environment working we can now configure the prod environment. To do so we create a `prod-common.yaml` file in 
+the `terraform/environments/prod` folder:
 
 ```yaml
 location: northeurope
@@ -361,7 +306,7 @@ suffix:
 app_name: testapp
 ```
 
-Next, update the `terragrunt.hcl` file in `terraform/environments/prod` to define a backend:
+and then add our backend configuration by defining the `terragrunt.hcl` file in `terraform/environments/prod` as follows:
 
 ```hcl
 include "root" {
@@ -385,66 +330,11 @@ remote_state {
 }
 ```
 
-Finally amend the `terragrunt.hcl` file in `terraform/environments/prod/resource_group` folder to match the `dev` version
-and we can test it out.
-
-<details>
-<summary>Terragrunt apply prod output<summary>
-
+Finally, we amend the `terragrunt.hcl` file in `terraform/environments/prod/resource_group` folder to match the `dev` version only replacing 
+`prod-common.yaml` for `dev-common.yaml`
 ```bash
 ❯ cd terraform/environments/prod
 ❯ terragrunt run-all apply
-INFO[0000] The stack at /home/edoatley/source/edoatley/azure-tf-iac-testing/terraform/environments/prod will be processed in the following order for command apply:
-Group 1
-- Module /home/edoatley/source/edoatley/azure-tf-iac-testing/terraform/environments/prod/resource_group
- 
-Are you sure you want to run 'terragrunt apply' in each folder of the stack described above? (y/n) y
-
-Terraform used the selected providers to generate the following execution
-plan. Resource actions are indicated with the following symbols:
-  + create
-
-Terraform will perform the following actions:
-
-  # azurerm_resource_group.network will be created
-  + resource "azurerm_resource_group" "network" {
-      + id       = (known after apply)
-      + location = "northeurope"
-      + name     = "rg-edo-prod-testapp"
-      + tags     = (known after apply)
-    }
-
-  # module.naming.random_string.first_letter will be created
-  + resource "random_string" "first_letter" {
-      + id          = (known after apply)
-      + length      = 1
-      + lower       = true
-      + min_lower   = 0
-      + min_numeric = 0
-      + min_special = 0
-      + min_upper   = 0
-      + number      = false
-      + numeric     = false
-      + result      = (known after apply)
-      + special     = false
-      + upper       = false
-    }
-
-  # module.naming.random_string.main will be created
-  + resource "random_string" "main" {
-      + id          = (known after apply)
-      + length      = 60
-      + lower       = true
-      + min_lower   = 0
-      + min_numeric = 0
-      + min_special = 0
-      + min_upper   = 0
-      + number      = true
-      + numeric     = true
-      + result      = (known after apply)
-      + special     = false
-      + upper       = false
-    }
 
 Plan: 3 to add, 0 to change, 0 to destroy.
 
@@ -458,19 +348,21 @@ azurerm_resource_group.network: Creating...
 azurerm_resource_group.network: Creation complete after 1s [id=/subscriptions/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxx/resourceGroups/rg-edo-prod-testapp]
 
 Apply complete! Resources: 3 added, 0 changed, 0 destroyed.
-
-Outputs:
-
-resource_group_name = "rg-edo-prod-testapp"
 ```
 
-</details>
+Great, our prod and dev configurations both work and give the expected results.
 
-### Step 12. Add vnet module
+### Step 8 - Add a dependent module
 
-Next we will add the vnet module which will require us passing the resource group name in. To do this 
-we need to use the output `resource_group_name` from the module `resource_group` and pass that into the inputs
-for the `vnet` module. To do this we need to create a `terragrunt.hcl` file in `terraform/environments/dev/vnet`:
+In the real world it is quite likely no matter how self-contained you try to make your modules that you will need to reference some value
+from another module. For example, we may want to create a virtual network and then create a virtual machine inside that virtual network.
+
+In our case the next thing we want to do is add the implementation calling the virtual network module. One of the variables that module 
+requires is the resource group name. We could pass this in as a variable but it would be better if we could get it from the resource group
+so if the `resource_group` module changes we don't need to update the way the `vnet` module is configured.
+
+In terragrunt we can do this by using the `dependency` block. This allows us to reference the output of another module. Our definition
+`terraform/environments/dev/virtual_network/terragrunt.hcl` will look like this:
 
 ```hcl
 terraform {
@@ -483,6 +375,9 @@ locals {
 
 dependency "rg" {
   config_path = "../resource_group"
+  mock_outputs = {
+    name = "temp-rg"
+  }
 }
 
 inputs = {
@@ -513,101 +408,25 @@ subnets:
       - 10.0.2.0/24
 ```
 
-We can now plan and then apply the configuration to check it works:
+There are a few key points to understand here:
 
-<details>
-<summary>Terragrunt plan dev output<summary>
+- give a name `rg` to the dependency on the `resource_group` module and specify where it is located relative to the `virtual_network` module
+- reference the `name` output `resource_group` creates using the reference `dependency.rg.outputs.name`
+- define `mock_outputs` so that when the `resource_group` module is not applied we can still test the configuration. This is
+  necessary as when you are still planning the resources `terraform` will not have created the outputs yet meaning the `name` output
+  the `vnet` module requires will not exist and we will get an error like this:
+  
+> terraform/environments/dev/resource_group/terragrunt.hcl is a dependency of terraform/environments/dev/vnet/terragrunt.hcl but detected no outputs.
+> Either the target module has not been applied yet, or the module has no outputs. If this is expected, set the skip_outputs flag to true on the dependency block.
 
-```bash
-❯ cd terraform/environments/dev
-❯ terragrunt run-all plan
-❯ terragrunt run-all plan
-INFO[0000] The stack at /home/edoatley/source/edoatley/azure-tf-iac-testing/terraform/environments/dev will be processed in the following order for command plan:
-Group 1
-- Module /home/edoatley/source/edoatley/azure-tf-iac-testing/terraform/environments/dev/resource_group
+This mock_outputs approach is [documented here](https://terragrunt.gruntwork.io/docs/features/execute-terraform-commands-on-multiple-modules-at-once/#unapplied-dependency-and-mock-outputs)
 
-Group 2
-- Module /home/edoatley/source/edoatley/azure-tf-iac-testing/terraform/environments/dev/vnet
- 
-<< ... Removed resource group output for brevity ... >>
-
-Note: You didn't use the -out option to save this plan, so Terraform can't
-guarantee to take exactly these actions if you run "terraform apply" now.
-ERRO[0015] Module /home/edoatley/source/edoatley/azure-tf-iac-testing/terraform/environments/dev/vnet has finished with an error: /home/edoatley/source/edoatley/azure-tf-iac-testing/terraform/environments/dev/resource_group/terragrunt.hcl is a dependency of /home/edoatley/source/edoatley/azure-tf-iac-testing/terraform/environments/dev/vnet/terragrunt.hcl but detected no outputs. Either the target module has not been applied yet, or the module has no outputs. If this is expected, set the skip_outputs flag to true on the dependency block.  prefix=[/home/edoatley/source/edoatley/azure-tf-iac-testing/terraform/environments/dev/vnet] 
-ERRO[0015] 1 error occurred:
-        * /home/edoatley/source/edoatley/azure-tf-iac-testing/terraform/environments/dev/resource_group/terragrunt.hcl is a dependency of /home/edoatley/source/edoatley/azure-tf-iac-testing/terraform/environments/dev/vnet/terragrunt.hcl but detected no outputs. Either the target module has not been applied yet, or the module has no outputs. If this is expected, set the skip_outputs flag to true on the dependency block.
- 
-ERRO[0015] Unable to determine underlying exit code, so Terragrunt will exit with error code 1
-```
-
-</details>
-
-Note: the error is expected as we have not applied the `resource_group` module yet and you cannot access outputs of an un-applied terraform module.
-We can work around this by adding a `mock_outputs` block to the `dependency` block which will be used when modules are not applied as described in the official [documentation](https://terragrunt.gruntwork.io/docs/features/execute-terraform-commands-on-multiple-modules-at-once/#unapplied-dependency-and-mock-outputs).
-Practically this means updating the `terragrunt.hcl` file in `terraform/environments/dev/vnet` making the `dependency` block now:
-
-```hcl
-dependency "rg" {
-  config_path = "../resource_group"
-  mock_outputs = {
-    name = "temp-rg"
-  }
-}
-```
-
-The `terragrunt run-all plan` runs ok and we can try an apply:
-
-<details>
-<summary>Terragrunt apply dev output<summary>
+With this configuration defined we can again run `terragrunt run-all plan` to check that runs ok before we try an apply:
 
 ```bash
 ❯ cd terraform/environments/dev
 ❯ terragrunt run-all apply
-❯ terragrunt run-all apply
-INFO[0000] The stack at /home/edoatley/source/edoatley/azure-tf-iac-testing/terraform/environments/dev will be processed in the following order for command apply:
-Group 1
-- Module /home/edoatley/source/edoatley/azure-tf-iac-testing/terraform/environments/dev/resource_group
-
-Group 2
-- Module /home/edoatley/source/edoatley/azure-tf-iac-testing/terraform/environments/dev/vnet
- 
-Are you sure you want to run 'terragrunt apply' in each folder of the stack described above? (y/n) y
-
-Terraform used the selected providers to generate the following execution
-plan. Resource actions are indicated with the following symbols:
-  + create
-
-Terraform will perform the following actions:
-
 << ... Detailed output shortened for brevity ...>>
-
-Plan: 5 to add, 0 to change, 0 to destroy.
-
-Changes to Outputs:
-  + subnet_address_spaces = {
-      + subnet1 = [
-          + "10.0.1.0/24",
-        ]
-      + subnet2 = [
-          + "10.0.2.0/24",
-        ]
-    }
-  + subnet_ids            = {}
-  + vnet_address_space    = [
-      + "10.0.0.0/16",
-    ]
-  + vnet_id               = (known after apply)
-  + vnet_name             = "vnet-edo-dev-testapp"
-module.naming.random_string.first_letter: Creating...
-module.naming.random_string.main: Creating...
-module.naming.random_string.first_letter: Creation complete after 0s [id=m]
-module.naming.random_string.main: Creation complete after 0s [id=biskuph6vvdb2nl0n0u6v4vlyv9z10gctu9ngpjl4vfobm08zkqzsslbsyuc]
-azurerm_virtual_network.vnet: Creating...
-azurerm_virtual_network.vnet: Creation complete after 4s [id=/subscriptions/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxx/resourceGroups/rg-edo-dev-testapp/providers/Microsoft.Network/virtualNetworks/vnet-edo-dev-testapp]
-azurerm_subnet.subnet["subnet2"]: Creating...
-azurerm_subnet.subnet["subnet1"]: Creating...
-azurerm_subnet.subnet["subnet1"]: Creation complete after 4s [id=/subscriptions/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxx/resourceGroups/rg-edo-dev-testapp/providers/Microsoft.Network/virtualNetworks/vnet-edo-dev-testapp/subnets/subnet1]
-azurerm_subnet.subnet["subnet2"]: Creation complete after 8s [id=/subscriptions/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxx/resourceGroups/rg-edo-dev-testapp/providers/Microsoft.Network/virtualNetworks/vnet-edo-dev-testapp/subnets/subnet2]
 
 Apply complete! Resources: 5 added, 0 changed, 0 destroyed.
 
@@ -632,9 +451,16 @@ vnet_id = "/subscriptions/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxx/resourceGroups/rg-edo
 vnet_name = "vnet-edo-dev-testapp"
 ```
 
-</details>
+## Conclusions
 
-### Step 13. Update production configuration
+In this first article I have explored how to set up and use Terragrunt to manage the configuration of a terraform project. To date my experience of doing this has been
+through having environment specific: GitHub actions configuration, tfvars files and command line -var options. This has worked fine to be honest and a typical project has
+usually looked very similar to the terragrunt project I have built here so I am not seeing massive benefits yet.
 
-We can now make the same changes to the production configuration by creating a `terragrunt.hcl` file in `terraform/environments/prod/vnet`:
-which is identical to the `dev` version other than the common variables file reference.
+That said I do really like the way you can read environment variables into configuration, for example, to specify the backend for a given environment. I also love being 
+able to define configuration in yaml which I find much simpler to read and work with than tfvars files. Finally I think the hard dependencies between modules could be useful
+to enforce sequencing of deployments. On occassion I have found terraform modules (even with a `depend_on`) run in parallel and not in the sequence I need for success.
+
+Overall, I find Terragrunt an interesting tool that I will certainly need to try some more to get the best of and understand the key use cases where it excels.
+
+In my next article I will look at testing the terraform code using Terratest.

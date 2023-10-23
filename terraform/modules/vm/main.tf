@@ -11,9 +11,14 @@ provider "azurerm" {
   features {}
 }
 
+module "naming" {
+  source = "Azure/naming/azurerm"
+  suffix = concat(var.suffix, [var.vm_name])
+}
+
 resource "azurerm_public_ip" "vm_public_ip" {
   count = var.public_ip_required ? 1 : 0
-  name                = "${var.vm_name}-public-ip"
+  name                = module.naming.public_ip.name
   location            = var.location
   resource_group_name = var.resource_group_name
   allocation_method   = "Static"
@@ -27,25 +32,26 @@ resource "azurerm_public_ip" "vm_public_ip" {
 }
 
 resource "azurerm_network_interface" "vm_nic" {
-  name                = "${var.vm_name}-network-interface"
+  name                = module.naming.network_interface.name
   location            = var.location
   resource_group_name = var.resource_group_name
 
   ip_configuration {
-    name                          = "${var.vm_name}-ip-configuration"
+    name                          = "${module.naming.network_interface.name}-ip-cfg"
     subnet_id                     = var.subnet_id
     private_ip_address_allocation = "Dynamic"
-    public_ip_address_id = var.public_ip_required ? azurerm_public_ip.vm_public_ip.id : null
+    public_ip_address_id = var.public_ip_required ? azurerm_public_ip.vm_public_ip[0].id : null
   }
 }
 
 resource "azurerm_linux_virtual_machine" "vm" {
-  name                  = var.vm_name
+  name                  = module.naming.virtual_machine.name
   location              = var.location
   resource_group_name   = var.resource_group_name 
   size                  = var.vm_size
   admin_username        = var.admin_name
   admin_password        = var.admin_password
+  disable_password_authentication = false
   network_interface_ids = [azurerm_network_interface.vm_nic.id]
 
   source_image_reference {
@@ -60,6 +66,6 @@ resource "azurerm_linux_virtual_machine" "vm" {
     storage_account_type = "Standard_LRS"
   }
 
-  computer_name = var.vm_name
+  computer_name = module.naming.virtual_machine.name
   tags          = var.tags
 }

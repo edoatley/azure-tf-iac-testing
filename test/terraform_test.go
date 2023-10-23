@@ -1,8 +1,10 @@
 package test
 
 import (
+	"fmt"
 	"testing"
 
+  "github.com/google/uuid"
 	"github.com/gruntwork-io/terratest/modules/terraform"
 	"github.com/stretchr/testify/assert"
 )
@@ -20,20 +22,27 @@ const (
 
 func TestTerraformRunAll(t *testing.T) {
 	t.Parallel()
-
   
-
 	terraformOptions := terraform.WithDefaultRetryableErrors(t, &terraform.Options{
 		TerraformDir:    terraformParentDir,
 		TerraformBinary: terraformBinary,
+    BackendConfig            : map[string]interface{}{
+      "key"                   : fmt.Sprintf("%s.tfstate", uuid.New().String()),
+      "storage_account_name"  : "edoterraformstate",
+      "container_name"        : "terratest",
+      "resource_group_name"   : "rg-edo-terraform-state",
+    },
 		Vars: map[string]interface{}{
 			"suffix": []string{"terratest", "edo"},
 		},
 	})
-
+  
 	// At the end of the test, run `terragrunt run-all destroy` to clean up any resources that were created.
 	defer terraform.TgDestroyAll(t, terraformOptions)
-
+  
+  // Initialize to use new state file
+  terraform.InitE(t, terraformOptions)
+  
 	// Run `terragrunt run-all apply`. Fail the test if there are any errors.
 	terraform.TgApplyAll(t, terraformOptions)
 
@@ -46,6 +55,13 @@ func TestTerraformRunAll(t *testing.T) {
       t.Helper()
       validateVirtualNetwork(t, terraformOptions)
   })
+
+  t.Run("Virtual Machine", func(t *testing.T) {
+      t.Helper()
+      validateVirtualMachine(t, terraformOptions)
+  })
+
+
 }
 
 // helper function to validate the resource group
@@ -68,6 +84,14 @@ func validateVirtualNetwork(t *testing.T, terraformOptions *terraform.Options) {
 
   assert.Equal(t, "10.0.1.0/24", subnetAddressSpaces["subnet1"][0])
   assert.Equal(t, "10.0.2.0/24", subnetAddressSpaces["subnet2"][0])
+}
+
+func validateVirtualMachine(t *testing.T, terraformOptions *terraform.Options) {
+  vmName := getSimpleOutput(t, terraformOptions, "/virtual_machine", "vm_name")
+  assert.Equal(t, "testappvm", vmName)
+
+  vmIp := getSimpleOutput(t, terraformOptions, "/virtual_machine", "vm_private_ip_address")
+  assert.Equal(t, "10.0.1.4", vmIp)
 }
 
 // helper function to fetch simple outputs when using terragrunt run-all
