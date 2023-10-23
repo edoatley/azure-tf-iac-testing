@@ -1,8 +1,7 @@
-# Building and testing Terraform Infrastructure as Code
+# Using Terragrunt to deploy Infrastructure as Code
 
-- [Building and testing Terraform Infrastructure as Code](#building-and-testing-terraform-infrastructure-as-code)
+- [Using Terragrunt to deploy Infrastructure as Code](#using-terragrunt-to-deploy-infrastructure-as-code)
   - [Introduction](#introduction)
-  - [Part 1 - Terragrunt](#part-1---terragrunt)
     - [Step 1 - Initialise the project and install tools](#step-1---initialise-the-project-and-install-tools)
     - [Step 2 - Setup the backend for state management](#step-2---setup-the-backend-for-state-management)
     - [Step 3 - Provider configuration](#step-3---provider-configuration)
@@ -31,7 +30,7 @@ improve my terraform workflows. There are two key challenges I am interested in 
 - How to test terraform code so that we are confident it works and are very happy to destroy our infrastructure safe in the 
   knowledge we can recreate it
 
-I am going to tackle these questions in 3 separate parts:
+I am going to tackle these questions in a 3 part series:
 
 - **Part 1** - setting up and utilising terragrunt to manage the terraform code and configuration
 - **Part 2** - using terratest to test the terraform code
@@ -41,8 +40,6 @@ In a nutshell the key challenge I am looking at here is how to configure test Te
 expected across all the environments it executes. This is not a trivial task as a handful of terraform resources will lead 
 to the execution of dozens of API requests to ARM to both check the current state. I hope you enjoy my exploration of this 
 topic and find it useful.
-
-## Part 1 - Terragrunt
 
 In this first article I will focus on getting a terragrunt project set up and running and give it a test drive to see how it can help
 us manage our terraform code. The project will be a simple application deployed to a VM inside a virtual network.
@@ -187,8 +184,8 @@ With the Terragrunt plumbing in place we can now define some terraform modules t
 - Virtual Network - `terraform/modules/vnet`
 - Virtual Machine - `terraform/modules/vm`
 
-I will share the source code for these modules so will skip over that for now and focus on how to use them with
-Terragrunt.
+I will share all the source code when I have completed the other articles in this series so will skip over that for now and focus 
+on how to use them with Terragrunt.
 
 ### Step 5 - deploy our first resource with Terragrunt
 
