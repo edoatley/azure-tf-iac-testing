@@ -1,30 +1,30 @@
 variable "location" {
-  type = string
+  type        = string
   description = "Location for the resources"
 }
 
 variable "resource_group_name" {
-  type = string
+  type        = string
   description = "Resource Group for the resources"
 }
 
 variable "tags" {
-  type = map
+  type        = map(any)
   description = "Tags for the resources"
 }
 
 variable "suffix" {
-  type = list
+  type        = list(any)
   description = "Suffix value for the naming"
 }
 
 variable "purpose" {
-  type = string
+  type        = string
   description = "The Purpose of the virtual Network"
 }
 
 variable "address_space" {
-  type = list
+  type        = list(any)
   description = "Address space for the virtual network"
 }
 

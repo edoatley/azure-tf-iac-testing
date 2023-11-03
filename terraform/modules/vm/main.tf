@@ -17,7 +17,7 @@ module "naming" {
 }
 
 resource "azurerm_public_ip" "vm_public_ip" {
-  count = var.public_ip_required ? 1 : 0
+  count               = var.public_ip_required ? 1 : 0
   name                = module.naming.public_ip.name
   location            = var.location
   resource_group_name = var.resource_group_name
@@ -40,19 +40,19 @@ resource "azurerm_network_interface" "vm_nic" {
     name                          = "${module.naming.network_interface.name}-ip-cfg"
     subnet_id                     = var.subnet_id
     private_ip_address_allocation = "Dynamic"
-    public_ip_address_id = var.public_ip_required ? azurerm_public_ip.vm_public_ip[0].id : null
+    public_ip_address_id          = var.public_ip_required ? azurerm_public_ip.vm_public_ip[0].id : null
   }
 }
 
 resource "azurerm_linux_virtual_machine" "vm" {
-  name                  = module.naming.virtual_machine.name
-  location              = var.location
-  resource_group_name   = var.resource_group_name 
-  size                  = var.vm_size
-  admin_username        = var.admin_name
-  admin_password        = var.admin_password
+  name                            = module.naming.virtual_machine.name
+  location                        = var.location
+  resource_group_name             = var.resource_group_name
+  size                            = var.vm_size
+  admin_username                  = var.admin_name
+  admin_password                  = var.admin_password
   disable_password_authentication = false
-  network_interface_ids = [azurerm_network_interface.vm_nic.id]
+  network_interface_ids           = [azurerm_network_interface.vm_nic.id]
 
   source_image_reference {
     publisher = var.source_image_reference.publisher

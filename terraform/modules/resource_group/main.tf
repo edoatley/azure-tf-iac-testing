@@ -19,7 +19,7 @@ module "naming" {
 resource "azurerm_resource_group" "network" {
   name     = module.naming.resource_group.name
   location = var.location
-  tags = merge(var.tags, tomap({ "deploy-timestamp" = timestamp() }))
+  tags     = merge(var.tags, tomap({ "deploy-timestamp" = timestamp() }))
 
   lifecycle {
     ignore_changes = [

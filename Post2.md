@@ -1,29 +1,76 @@
-## Testing Terraform code using Terratest
+# Testing Terraform code using Terratest
 
 ## Introduction
 
 In my previous article I explained how I had used Terragrunt to build up a Terraform project that is configurable and 
-can easily target multiple different environments. My next concern is how we are going to test that the code is 
-going to work as expected to define the correct infrastructure. 
+can easily target multiple different environments. My next concern is how we are going to test that the code is
+going to work as expected to define the correct infrastructure.
 
-Testing is always an interesting challeneg and ensuring you write the correct tests for your infrastructure is no 
-different. I like to work in a test driven way where I can thoguh sometime I like to get all the basics up and ready before 
-getting too carried away with a [red,green, refactor cycle](https://www.codecademy.com/article/tdd-red-green-refactor)!
+Testing is always an interesting challenge and ensuring you write the correct tests for your infrastructure is no
+different. I like to work in a test-driven way where I can, though I am not a zealot and like to get all the basics up and 
+ready before getting too carried away with a [red,green, refactor cycle](https://www.codecademy.com/article/tdd-red-green-refactor)!
 
-With our basic project set up, we can use terratest to help validate it. Terratest is a library (written in [Go](https://go.dev/)) 
+With our basic project set up, we can use terratest to help validate it. Terratest is a library (written in [Go](https://go.dev/))
 that makes it easier to write automated tests for your infrastructure code by providing a number of helper functions.
 
-### Step 1. Install go
+I will extend this article in a future one to look at how we can use integration testing to validate our infrastructure further.
 
-Follow the [Install Go](https://golang.org/doc/install) instructions.
+### Step 1 - Pre-requisites
+
+I will begin with my project in the same state it finished in the previous article. We have a `terraform` directory that looks like this:
+
+```bash
+❯ cd terraform/
+❯ tree .
+.
+├── environments
+│   ├── dev
+│   │   ├── dev-common.yaml
+│   │   ├── resource_group
+│   │   │   └── terragrunt.hcl
+│   │   ├── terragrunt.hcl
+│   │   ├── virtual_machine
+│   │   │   └── terragrunt.hcl
+│   │   └── virtual_network
+│   │       └── terragrunt.hcl
+│   ├── prod
+│   │   ├── prod-common.yaml
+│   │   ├── resource_group
+│   │   │   └── terragrunt.hcl
+│   │   ├── terragrunt.hcl
+│   │   ├── virtual_machine
+│   │   │   └── terragrunt.hcl
+│   │   └── virtual_network
+│   │       └── terragrunt.hcl
+│   └── terragrunt.hcl
+└── modules
+    ├── resource_group
+    │   ├── main.tf
+    │   ├── outputs.tf
+    │   └── variables.tf
+    ├── vm
+    │   ├── main.tf
+    │   ├── outputs.tf
+    │   └── variables.tf
+    └── vnet
+        ├── main.tf
+        ├── outputs.tf
+        └── variables.tf
+```
+
+So there is a `dev` and a `prod` environment and the code will deploy a resource group, a virtual network and a virtual machine.
 
 ### Step 2. Create a basic test
 
-First we create a new directory `test` and add a file `terraform_test.go` with the following contents:
+To use terratest we must install go following [these instructions](https://golang.org/doc/install). We can then set up our project 
+with the help of the [official guidance](https://terratest.gruntwork.io/docs/getting-started/quick-start/#setting-up-your-project).
+
+Now we create a new directory `test` and add a file `terraform_test.go` with the following contents:
 
 ```go
 package test
 
+// import the testing modules that we need
 import (
   "testing"
   "github.com/gruntwork-io/terratest/modules/terraform"
@@ -65,10 +112,13 @@ func getOutput(t *testing.T, terraformOptions *terraform.Options, dir string, ou
 }
 ```
 
-The code is commented to explain in detail what is happening. The key points are:
-- run `terragrunt run-all apply` to apply the terraform code
-- extract the output of the resource group module
-- verify the output is as expected
+I have commented the code to explain what it is doing. The key points are:
+
+- target the `dev` environment directory and use the `terragrunt` binary
+- [`defer`](https://go.dev/tour/flowcontrol/12) destruction of the resources until the function returns
+- use terragrunt to apply the resources (a `terragrunt run-all apply` under the covers)
+- fetch the resource group name
+- assert that the resource group name is as expected
 
 ### Step 3. Execute the test
 
@@ -86,13 +136,12 @@ and then we can run the test:
 go test -v -run TestTerraformBasicExample -timeout 10m
 ```
 
-So picking out the key parts of the output, we see the test:
+Picking out the key parts of the output, we see the test:
 
 
 1. Running the `terragrunt run-all apply` command:
 
-```bash
-```bash
+```output
 TestTerraformBasicExample 2023-09-22T13:01:06+01:00 retry.go:91: terragrunt [run-all apply -input=false -auto-approve -lock=false --terragrunt-non-interactive]
 TestTerraformBasicExample 2023-09-22T13:01:06+01:00 logger.go:66: Running command terragrunt with args [run-all apply -input=false -auto-approve -lock=false --terragrunt-non-interactive]
 TestTerraformBasicExample 2023-09-22T13:01:07+01:00 logger.go:66: time=2023-09-22T13:01:07+01:00 level=info msg=The stack at /home/edoatley/source/edoatley/azure-tf-iac-testing/terraform/environments/dev will be processed in the following order for command apply:
@@ -106,7 +155,7 @@ TestTerraformBasicExample 2023-09-22T13:01:07+01:00 logger.go:66: - Module /home
 
 2. Applying ok and outputting the expected resource_group_name
 
-```bash
+```output
 TestTerraformBasicExample 2023-09-22T13:01:35+01:00 logger.go:66: Apply complete! Resources: 3 added, 0 changed, 0 destroyed.
 TestTerraformBasicExample 2023-09-22T13:01:35+01:00 logger.go:66: 
 TestTerraformBasicExample 2023-09-22T13:01:35+01:00 logger.go:66: Outputs:
@@ -116,7 +165,7 @@ TestTerraformBasicExample 2023-09-22T13:01:35+01:00 logger.go:66: resource_group
 
 3. Getting the output of the resource group module
 
-```bash
+```output
 TestTerraformBasicExample 2023-09-22T13:02:14+01:00 retry.go:91: terragrunt [output -no-color -json resource_group_name --terragrunt-non-interactive]
 TestTerraformBasicExample 2023-09-22T13:02:14+01:00 logger.go:66: Running command terragrunt with args [output -no-color -json resource_group_name --terragrunt-non-interactive]
 TestTerraformBasicExample 2023-09-22T13:02:14+01:00 logger.go:66: "rg-edo-dev-testapp"
@@ -124,7 +173,7 @@ TestTerraformBasicExample 2023-09-22T13:02:14+01:00 logger.go:66: "rg-edo-dev-te
 
 4. Successfully destroying the resources
 
-```bash
+```output
 TestTerraformBasicExample 2023-09-22T13:02:14+01:00 retry.go:91: terragrunt [run-all destroy -auto-approve -input=false -lock=false --terragrunt-non-interactive]
 TestTerraformBasicExample 2023-09-22T13:02:14+01:00 logger.go:66: Running command terragrunt with args [run-all destroy -auto-approve -input=false -lock=false --terragrunt-non-interactive]
 ...
@@ -142,7 +191,7 @@ TestTerraformBasicExample 2023-09-22T13:04:21+01:00 logger.go:66:
 
 5. Confirming that the test has passed:
 
-```bash
+```output
 TestTerraformBasicExample 2023-09-22T13:04:21+01:00 logger.go:66: Destroy complete! Resources: 3 destroyed.
 TestTerraformBasicExample 2023-09-22T13:04:21+01:00 logger.go:66: 
 --- PASS: TestTerraformBasicExample (194.80s)
@@ -152,7 +201,7 @@ ok      github.com/edoatley/azure-tf-iac-testing        194.814s
 
 ### Step 4. Add a test for the vnet module
 
-We now have a working test but it is not fast! It takes around 3 minutes to run. This is because we are applying the whole stack. 
+We now have a working test but it is not fast! It takes around 3 minutes to run. This is because we are applying the whole stack.
 
 Let's try creating a test that just runs the resource_group_module. To do this we will add another test to our `terraform_test.go` file:
 
@@ -182,13 +231,14 @@ PASS
 ok      github.com/edoatley/azure-tf-iac-testing        83.220s
 ```
 
-but if what you want to test deploying all the modules then you are likely better off using the `run-all` command.
+This said if what you want to test deploying all the modules then you are likely better off using the `run-all` command 
+as this is more realistic.
 
-### Step 5. Making a more useful clean test
+### Step 5. Making a more useful, clean test
 
 The long running nature of an apply-all test does make for an interesting challenge where you either:
 
-- run a long running test many times 
+- run a long running test many times each with a single assertion
 - have a single long running test that needs to check many things rather than the ideal of making a single assertion per test
 
 To refactor around this a little I created the following test this:
@@ -237,29 +287,6 @@ Though we are breaking the 'one assertion rule' I would argue that:
 
 a) the outcome we are measuring is whether the terraform we will use to deploy our infrastructure works correctly
 b) running lots of identical tests with many assertions is going to take a lot of time and slow down feedback
-
-### Step 6. (ASIDE) refactor getOutputMap
-
-Now it was all working I took the opportunity to improve and refactor a bit. I observed that there is a nice method in terratest 
-called `terraform.OutputStructE` which I could use to simplify the `validateVirtualNetwork` method:
-
-```go
-func getOutput(t *testing.T, terraformOptions *terraform.Options, dir string, outputRequested string, output interface{}) {
-  terraformOptions.TerraformDir = terraformParentDir + dir
-	err := terraform.OutputStructE(t, terraformOptions, outputRequested, output)
-  if err != nil {
-    t.Fatalf("Failed to fetch output %s: %v", output, err)
-  }
-}
-```
-
-in this you pass in a pointer to the object you wish it to populate which for the subnet ranges means I can call it as follows:
-
-```go
-  var subnetAddressSpaces map[string][]string
-  getOutput(t, terraformOptions, "/virtual_network", "subnet_address_spaces", &subnetAddressSpaces)
-  fmt.Println("XXX -> subnetAddressSpaces: " + fmt.Sprintf("%v", subnetAddressSpaces))
-```
 
 ### Step 6. Aren't we building and destroying the actual dev environment!
 
@@ -326,3 +353,20 @@ assert.Equal(t, "rg-terratest-edo-testapp", rgName)
 // update vnet assertions
 assert.Equal(t, "vnet-terratest-edo-testapp", vnetName)
 ```
+
+and this is now an isolated test that does not affect the real dev environment.
+
+## Conclusions
+
+In this article I have shown how we can use terratest to test our terraform code. Terratest does have the benefit of running the 
+actual terraform code and testing the results but there are a number of limitations:
+
+1. It is slow. This is because it is running the actual terraform code and so the resource providers really execute in Azure and
+   this takes time.
+
+2. We are a bit limited in the assertions we can make as we are seeing everything through the lens of terraform outputs. This is
+   not a bad thing but it does mean we are not testing the actual resources in Azure.
+
+In my next article I attempt to address this latter issue by using integration testing to test the actual resources in Azure.
+
+Thanks for reading I hope this was useful.
