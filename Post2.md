@@ -2,13 +2,13 @@
 
 ## Introduction
 
-In my previous article I explained how I had used Terragrunt to build up a Terraform project that is configurable and 
-can easily target multiple different environments. My next concern is how we are going to test that the code is
-going to work as expected to define the correct infrastructure.
+In my [previous article](https://www.linkedin.com/pulse/using-terragrunt-deploy-infrastructure-code-ed-oatley-poeqe) I explained how I 
+had used Terragrunt to build up a Terraform project that is configurable and can easily target multiple different environments. My next
+concern is how we are going to test that the code is going to work as expected to define the correct infrastructure.
 
 Testing is always an interesting challenge and ensuring you write the correct tests for your infrastructure is no
 different. I like to work in a test-driven way where I can, though I am not a zealot and like to get all the basics up and 
-ready before getting too carried away with a [red,green, refactor cycle](https://www.codecademy.com/article/tdd-red-green-refactor)!
+ready before getting too carried away with a [red, green, refactor cycle](https://www.codecademy.com/article/tdd-red-green-refactor)!
 
 With our basic project set up, we can use terratest to help validate it. Terratest is a library (written in [Go](https://go.dev/))
 that makes it easier to write automated tests for your infrastructure code by providing a number of helper functions.
