@@ -1,6 +1,6 @@
-# Validating resources deployed by Terraform
+# Validating Azure Resources with Spock
 
-- [Validating resources deployed by Terraform](#validating-resources-deployed-by-terraform)
+- [Validating Azure Resources with Spock](#validating-azure-resources-with-spock)
   - [Introduction](#introduction)
   - [Steps](#steps)
     - [Pre-requisites](#pre-requisites)
@@ -76,6 +76,8 @@ We will start with the same basic terragrunt set up I used in the last two artic
 ```
 
 ### Step 1 - Create a new directory and initialise gradle
+
+Here we initialise our gradle project:
 
 ```bash
 > mkdir it && cd it
