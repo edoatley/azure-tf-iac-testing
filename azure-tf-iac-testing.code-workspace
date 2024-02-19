@@ -1,0 +1,15 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "../aws-train"
+		}
+	],
+	"settings": {
+		"cSpell.words": [
+			"terragrunt"
+		]
+	}
+}

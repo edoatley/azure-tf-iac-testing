@@ -1,0 +1,28 @@
+location: northeurope
+
+tags:
+  environment: prod
+  project: edoterraform
+
+suffix:
+  - edo
+  - prod
+
+app_name: testapp
+
+address_space:
+  - 10.11.0.0/16
+
+subnets:
+  - name: subnet1
+    address_prefixes: 
+      - 10.11.1.0/24
+  - name: subnet2
+    address_prefixes: 
+      - 10.11.2.0/24
+
+vm:
+  size: Standard_D2s_v3
+  name: prodappvm
+  admin_name: prodadmin
+  admin_password: Prodpassword!321

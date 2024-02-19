@@ -1,0 +1,28 @@
+location: northeurope
+
+tags:
+  environment: dev
+  project: edoterraform
+
+suffix:
+  - edo
+  - dev
+
+app_name: testapp
+
+address_space:
+  - 10.0.0.0/16
+
+subnets:
+  - name: subnet1
+    address_prefixes: 
+      - 10.0.1.0/24
+  - name: subnet2
+    address_prefixes: 
+      - 10.0.2.0/24
+
+vm:
+  size: Standard_B1s
+  name: testappvm
+  admin_name: testadmin
+  admin_password: Testpassword!321
