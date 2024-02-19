@@ -8,3 +8,10 @@ grunt_*.tf
 
 # terragrunt outputs
 .terragrunt-cache
+
+# Ignore envrc files as may be sensitive
+.envrc
+
+# build dir
+**/it/bin
+**/it/build
